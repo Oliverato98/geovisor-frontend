@@ -1,0 +1,209 @@
+/* ── Fuentes ─────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap');
+
+/* ── Variables de diseño ─────────────────────────────────────────────────── */
+:root {
+  /* Paleta institucional Calarcá */
+  --geo-bg:          #0f1117;
+  --geo-surface:     #171b25;
+  --geo-panel:       #1e2330;
+  --geo-panel-alt:   #252c3d;
+  --geo-border:      rgba(255,255,255,0.08);
+  --geo-border-hi:   rgba(255,255,255,0.15);
+
+  /* Acento verde esmeralda (región cafetera) */
+  --geo-accent:      #2dd4a0;
+  --geo-accent-dim:  rgba(45, 212, 160, 0.15);
+  --geo-accent-glow: rgba(45, 212, 160, 0.35);
+
+  /* Acento secundario ámbar */
+  --geo-amber:       #f59e0b;
+  --geo-amber-dim:   rgba(245, 158, 11, 0.15);
+
+  /* Texto */
+  --geo-text:        #e8eaf0;
+  --geo-text-muted:  #7b8299;
+  --geo-text-hint:   #4a5168;
+
+  /* Estados */
+  --geo-danger:      #ef4444;
+  --geo-success:     #22c55e;
+  --geo-info:        #3b82f6;
+
+  /* Layout */
+  --panel-width:     320px;
+  --toolbar-h:       48px;
+  --radius-sm:       6px;
+  --radius-md:       10px;
+  --radius-lg:       14px;
+
+  /* Sombras */
+  --shadow-panel:    0 4px 24px rgba(0,0,0,0.5), 0 1px 4px rgba(0,0,0,0.3);
+  --shadow-btn:      0 2px 8px rgba(0,0,0,0.4);
+}
+
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  background: var(--geo-bg);
+  color: var(--geo-text);
+}
+
+/* ── MapLibre overrides ──────────────────────────────────────────────────── */
+.maplibregl-canvas { outline: none; }
+
+.maplibregl-ctrl-group {
+  background: var(--geo-panel) !important;
+  border: 1px solid var(--geo-border) !important;
+  box-shadow: var(--shadow-panel) !important;
+  border-radius: var(--radius-md) !important;
+}
+.maplibregl-ctrl-group button {
+  background: transparent !important;
+  color: var(--geo-text-muted) !important;
+  border-bottom: 1px solid var(--geo-border) !important;
+}
+.maplibregl-ctrl-group button:hover {
+  background: var(--geo-panel-alt) !important;
+  color: var(--geo-accent) !important;
+}
+.maplibregl-ctrl-group button:last-child { border-bottom: none !important; }
+
+.maplibregl-popup-content {
+  background: var(--geo-panel) !important;
+  border: 1px solid var(--geo-border-hi) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-panel) !important;
+  color: var(--geo-text) !important;
+  padding: 0 !important;
+  min-width: 220px;
+  max-width: 320px;
+}
+.maplibregl-popup-tip { display: none; }
+.maplibregl-popup-close-button {
+  color: var(--geo-text-muted) !important;
+  font-size: 16px !important;
+  padding: 8px 10px !important;
+}
+.maplibregl-popup-close-button:hover { color: var(--geo-danger) !important; }
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--geo-border-hi); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--geo-accent); }
+
+/* ── Animaciones ─────────────────────────────────────────────────────────── */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spin { animation: spin 1s linear infinite; }
+.fade-in { animation: fadeSlideIn 0.2s ease forwards; }
+
+/* ── Componentes de utilidad ─────────────────────────────────────────────── */
+.geo-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--geo-border);
+  background: var(--geo-panel-alt);
+  color: var(--geo-text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.geo-btn:hover {
+  border-color: var(--geo-accent);
+  color: var(--geo-accent);
+  background: var(--geo-accent-dim);
+}
+.geo-btn.active {
+  border-color: var(--geo-accent);
+  background: var(--geo-accent-dim);
+  color: var(--geo-accent);
+}
+.geo-btn.danger:hover {
+  border-color: var(--geo-danger);
+  color: var(--geo-danger);
+  background: rgba(239,68,68,0.1);
+}
+.geo-btn.primary {
+  background: var(--geo-accent);
+  border-color: var(--geo-accent);
+  color: #0f1117;
+  font-weight: 600;
+}
+.geo-btn.primary:hover { background: #25c492; }
+
+.geo-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.geo-badge.admin  { background: var(--geo-accent-dim); color: var(--geo-accent); }
+.geo-badge.public { background: var(--geo-amber-dim);  color: var(--geo-amber); }
+
+.geo-input {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--geo-bg);
+  border: 1px solid var(--geo-border);
+  border-radius: var(--radius-sm);
+  color: var(--geo-text);
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.geo-input:focus { border-color: var(--geo-accent); }
+.geo-input::placeholder { color: var(--geo-text-hint); }
+
+.geo-slider {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--geo-border-hi);
+  outline: none;
+}
+.geo-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--geo-accent);
+  cursor: pointer;
+  box-shadow: 0 0 0 3px var(--geo-accent-dim);
+}
+
+.geo-divider {
+  height: 1px;
+  background: var(--geo-border);
+  margin: 12px 0;
+}
+
+.geo-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--geo-text-hint);
+  margin-bottom: 8px;
+}
