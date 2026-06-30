@@ -147,7 +147,7 @@ function LayersTab() {
               <span style={{ color: 'var(--geo-text-muted)' }}>{geomIcon(layer.geometry_type)}</span>
 
               {/* Nombre */}
-              <span style={{ flex: 1, fontSize: 12, fontWeight: 500, truncate: true, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ flex: 1, fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {layer.name}
               </span>
 

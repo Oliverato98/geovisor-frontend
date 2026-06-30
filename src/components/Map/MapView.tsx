@@ -33,7 +33,7 @@ export default function MapView() {
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: BASEMAPS['osm'].style as maplibregl.StyleSpecification,
+      style: BASEMAPS['osm'].style,
       center: CALARCA_CENTER,
       zoom: CALARCA_ZOOM,
       attributionControl: false,
@@ -59,7 +59,7 @@ export default function MapView() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const style = BASEMAPS[baseMap].style as maplibregl.StyleSpecification;
+    const style = BASEMAPS[baseMap].style;
     map.setStyle(style);
     // Re-agregar capas GIS después de cambiar estilo
     map.once('styledata', () => syncLayers(map));

@@ -108,72 +108,60 @@ export const analysisApi = {
 };
 
 // ── Basemaps ─────────────────────────────────────────────────────────────────
+import type { StyleSpecification } from 'maplibre-gl';
+
+function makeRasterStyle(id: string, tiles: string[], attribution: string, maxzoom: number): StyleSpecification {
+  return {
+    version: 8,
+    sources: {
+      [id]: {
+        type: 'raster',
+        tiles,
+        tileSize: 256,
+        attribution,
+        maxzoom,
+      },
+    },
+    layers: [{ id, type: 'raster', source: id }],
+  };
+}
+
 export const BASEMAPS = {
   osm: {
     label: 'OpenStreetMap',
-    style: {
-      version: 8,
-      sources: {
-        osm: {
-          type: 'raster',
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© OpenStreetMap contributors',
-          maxzoom: 19,
-        },
-      },
-      layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-    },
+    style: makeRasterStyle(
+      'osm',
+      ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      '© OpenStreetMap contributors',
+      19
+    ),
   },
   satellite: {
     label: 'Satelital',
-    style: {
-      version: 8,
-      sources: {
-        satellite: {
-          type: 'raster',
-          tiles: [
-            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-          ],
-          tileSize: 256,
-          attribution: 'Esri, Maxar, GeoEye, i-cubed, USDA FSA, USGS',
-          maxzoom: 19,
-        },
-      },
-      layers: [{ id: 'satellite', type: 'raster', source: 'satellite' }],
-    },
+    style: makeRasterStyle(
+      'satellite',
+      ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      'Esri, Maxar, GeoEye, i-cubed, USDA FSA, USGS',
+      19
+    ),
   },
   topo: {
     label: 'Topográfico',
-    style: {
-      version: 8,
-      sources: {
-        topo: {
-          type: 'raster',
-          tiles: ['https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'.replace('{s}', 'a')],
-          tileSize: 256,
-          attribution: '© OpenTopoMap',
-          maxzoom: 17,
-        },
-      },
-      layers: [{ id: 'topo', type: 'raster', source: 'topo' }],
-    },
+    style: makeRasterStyle(
+      'topo',
+      ['https://a.tile.opentopomap.org/{z}/{x}/{y}.png'],
+      '© OpenTopoMap',
+      17
+    ),
   },
   dark: {
     label: 'Oscuro',
-    style: {
-      version: 8,
-      sources: {
-        dark: {
-          type: 'raster',
-          tiles: ['https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'],
-          tileSize: 256,
-          attribution: '© Stadia Maps © OpenMapTiles © OpenStreetMap',
-          maxzoom: 20,
-        },
-      },
-      layers: [{ id: 'dark', type: 'raster', source: 'dark' }],
-    },
+    style: makeRasterStyle(
+      'dark',
+      ['https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'],
+      '© Stadia Maps © OpenMapTiles © OpenStreetMap',
+      20
+    ),
   },
 } as const;
 
