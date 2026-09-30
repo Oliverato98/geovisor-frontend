@@ -19,6 +19,9 @@ export default function MapView() {
   const measurePointsRef = useRef<[number, number][]>([]);
   const drawingRef = useRef<[number, number][]>([]);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  // Los clics de capa se registran una sola vez por capa, así que la herramienta
+  // activa se consulta por referencia y no por clausura.
+  const activeToolRef = useRef(activeTool);
 
   const {
     setMap, baseMap, layers, activeTool,
@@ -302,12 +305,25 @@ export default function MapView() {
     }
   }, [analysisLayers]);
 
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+    // Al tomar una herramienta se cierra la ficha de atributos abierta
+    if (activeTool !== 'none') {
+      popupRef.current?.remove();
+      popupRef.current = null;
+    }
+  }, [activeTool]);
+
   // ── Popup de atributos ────────────────────────────────────────────────────
   const handleFeatureClick = useCallback((
     e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] },
     map: maplibregl.Map,
     layer: { name: string; attributes: Record<string, string> }
   ) => {
+    // Con una herramienta activa el clic pertenece a la medición o al dibujo:
+    // sin esto la ficha de atributos se lleva todos los clics, porque casi
+    // siempre hay una capa bajo el cursor.
+    if (activeToolRef.current !== 'none') return;
     if (!e.features?.[0]) return;
     const feature = e.features[0];
     const props = feature.properties ?? {};
