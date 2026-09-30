@@ -9,17 +9,20 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@maplibre/maplibre-gl-geocoder": "^1.5.0",
+    "@turf/turf": "^6.5.0",
+    "axios": "^1.7.2",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^0.383.0",
+    "maplibre-gl": "^4.3.2",
+    "proj4": "^2.22.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "maplibre-gl": "^4.3.2",
-    "@maplibre/maplibre-gl-geocoder": "^1.5.0",
-    "zustand": "^4.5.2",
-    "axios": "^1.7.2",
-    "@turf/turf": "^6.5.0",
     "react-dropzone": "^14.2.3",
-    "lucide-react": "^0.383.0"
+    "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@types/proj4": "^2.5.6",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",

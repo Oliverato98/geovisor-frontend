@@ -3,6 +3,7 @@ import MapView from './components/Map/MapView';
 import LeftPanel from './components/Panels/LeftPanel';
 import RightPanel from './components/Panels/RightPanel';
 import Toolbar from './components/Tools/Toolbar';
+import PlanoLayout from './components/Tools/PlanoLayout';
 import Notifications from './components/UI/Notifications';
 import { useGeoStore } from './store/useGeoStore';
 import { layersApi } from './services/api';
@@ -46,6 +47,7 @@ export default function App() {
           <MapView />
           <CursorCoords />
           <ActiveToolIndicator />
+          <PlanoLayout />
         </div>
         <RightPanel />
       </div>
