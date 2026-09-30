@@ -2,16 +2,21 @@
  * components/Panels/LeftPanel.tsx
  * Panel lateral izquierdo con pestañas: Capas | Subir | Análisis
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import {
   Layers, Upload, Activity, Eye, EyeOff, Trash2,
   ZoomIn, Download, ChevronDown, ChevronRight,
-  MapPin, Minus, Square, AlertTriangle, Palette, Lock, Mountain, RotateCcw
+  MapPin, Minus, Square, AlertTriangle, Palette, Lock, Mountain, RotateCcw,
+  FileText, ExternalLink
 } from 'lucide-react';
 import { useGeoStore, type RasterLayer } from '../../store/useGeoStore';
 import { GRUPOS_RASTER, RAMPAS } from '../../data/rasters';
 import { coloresDe, textoClase } from '../../services/rasterMapa';
+import {
+  listarSalidas, obtenerSalida, borrarSalida, renombrarSalida,
+  formatearPeso, descargar, type SalidaResumen,
+} from '../../services/salidas';
 import { layersApi, uploadApi, analysisApi } from '../../services/api';
 
 // ── Panel principal ───────────────────────────────────────────────────────────
@@ -22,6 +27,7 @@ export default function LeftPanel() {
     { id: 'layers' as const, label: 'Capas', icon: Layers },
     { id: 'upload' as const, label: 'Subir', icon: Upload },
     { id: 'analysis' as const, label: 'Análisis', icon: Activity },
+    { id: 'salidas' as const, label: 'Salidas', icon: FileText },
   ];
 
   return (
@@ -55,17 +61,17 @@ export default function LeftPanel() {
               key={id}
               onClick={() => setLeftPanelTab(id)}
               style={{
-                flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer',
+                flex: 1, padding: '8px 2px', border: 'none', cursor: 'pointer',
                 background: leftPanelTab === id ? 'var(--geo-panel-alt)' : 'transparent',
                 color: leftPanelTab === id ? 'var(--geo-accent)' : 'var(--geo-text-muted)',
                 borderRadius: '6px 6px 0 0',
-                fontSize: 11, fontWeight: 500,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                fontSize: 10.5, fontWeight: 500, whiteSpace: 'nowrap',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
                 transition: 'all 0.15s',
                 borderBottom: leftPanelTab === id ? '2px solid var(--geo-accent)' : '2px solid transparent',
               }}
             >
-              <Icon size={12} />
+              <Icon size={11} />
               {label}
             </button>
           ))}
@@ -77,6 +83,7 @@ export default function LeftPanel() {
         {leftPanelTab === 'layers' && <LayersTab />}
         {leftPanelTab === 'upload' && <UploadTab />}
         {leftPanelTab === 'analysis' && <AnalysisTab />}
+        {leftPanelTab === 'salidas' && <SalidasTab />}
       </div>
     </div>
   );
@@ -552,6 +559,187 @@ function LeyendaRaster({ raster }: { raster: RasterLayer }) {
           <Palette size={11} />
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Tab: Salidas gráficas ─────────────────────────────────────────────────────
+/**
+ * Los planos que se han guardado desde el compositor. Viven en el navegador
+ * de quien los generó: no viajan al servidor ni los ve nadie más, así que si
+ * se limpia el historial del navegador se pierden.
+ */
+function SalidasTab() {
+  const { salidasVersion, refrescarSalidas, addNotification } = useGeoStore();
+  const [salidas, setSalidas] = useState<SalidaResumen[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [editando, setEditando] = useState<string | null>(null);
+  const [nombre, setNombre] = useState('');
+
+  useEffect(() => {
+    let vigente = true;
+    setCargando(true);
+    listarSalidas()
+      .then((lista) => { if (vigente) setSalidas(lista); })
+      .catch(() => {
+        if (vigente) {
+          addNotification({
+            type: 'error',
+            message: 'El navegador no dejó leer los planos guardados.',
+          });
+        }
+      })
+      .finally(() => { if (vigente) setCargando(false); });
+    return () => { vigente = false; };
+  }, [salidasVersion, addNotification]);
+
+  const abrir = async (id: string, enPestana: boolean) => {
+    const salida = await obtenerSalida(id);
+    if (!salida) return;
+    if (enPestana) {
+      const url = URL.createObjectURL(salida.pdf);
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } else {
+      descargar(salida.pdf, salida.nombre);
+    }
+  };
+
+  const eliminar = async (id: string, titulo: string) => {
+    if (!confirm(`¿Borrar «${titulo}»? No se puede deshacer.`)) return;
+    await borrarSalida(id);
+    refrescarSalidas();
+  };
+
+  const guardarNombre = async (id: string) => {
+    const limpio = nombre.trim();
+    if (limpio) await renombrarSalida(id, limpio);
+    setEditando(null);
+    refrescarSalidas();
+  };
+
+  const fecha = (iso: string) =>
+    new Date(iso).toLocaleString('es-CO', {
+      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+    });
+
+  const total = salidas.reduce((s, x) => s + x.pesoBytes, 0);
+
+  if (cargando) {
+    return (
+      <div style={{ padding: 14, fontSize: 11.5, color: '#8f95a9' }}>
+        Buscando planos guardados…
+      </div>
+    );
+  }
+
+  if (salidas.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', color: 'var(--geo-text-hint)', padding: '48px 20px' }}>
+        <FileText size={32} style={{ opacity: 0.3, marginBottom: 10 }} />
+        <div style={{ fontSize: 12, color: 'var(--geo-text-muted)' }}>
+          Todavía no has guardado planos
+        </div>
+        <div style={{ fontSize: 11, marginTop: 6, lineHeight: 1.5, color: '#8f95a9' }}>
+          Arma uno en «Diseño de página» y, al exportarlo, elige guardarlo aquí.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ height: '100%', overflowY: 'auto', padding: 12 }}>
+      <div style={{
+        display: 'flex', alignItems: 'baseline', gap: 6, padding: '2px 2px 10px',
+      }}>
+        <span style={{
+          flex: 1, fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
+          textTransform: 'uppercase', color: 'var(--geo-text-muted)',
+        }}>
+          Planos guardados
+        </span>
+        <span style={{ fontSize: 10, fontFamily: 'DM Mono, monospace', color: '#8f95a9' }}>
+          {salidas.length} · {formatearPeso(total)}
+        </span>
+      </div>
+
+      {salidas.map((s) => (
+        <div key={s.id} style={{
+          background: 'var(--geo-panel-alt)',
+          border: '1px solid var(--geo-border)',
+          borderRadius: 8, marginBottom: 8, padding: '10px 11px',
+        }}>
+          {editando === s.id ? (
+            <input
+              className="geo-input"
+              autoFocus
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              onBlur={() => guardarNombre(s.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') guardarNombre(s.id);
+                if (e.key === 'Escape') setEditando(null);
+              }}
+              style={{ width: '100%', fontSize: 12, padding: '4px 7px', fontFamily: 'inherit' }}
+            />
+          ) : (
+            <div
+              title="Clic para cambiarle el nombre"
+              onClick={() => { setEditando(s.id); setNombre(s.nombre); }}
+              style={{
+                fontSize: 12.5, fontWeight: 500, cursor: 'text',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}
+            >
+              {s.nombre}
+            </div>
+          )}
+
+          <div style={{
+            display: 'flex', gap: 8, flexWrap: 'wrap', margin: '6px 0 9px',
+            fontSize: 10, fontFamily: 'DM Mono, monospace', color: '#8f95a9',
+          }}>
+            <span>{fecha(s.creado)}</span>
+            <span>1:{s.escala.toLocaleString('es-CO')}</span>
+            <span>{s.papel}</span>
+            <span>{formatearPeso(s.pesoBytes)}</span>
+          </div>
+
+          {s.capas.length > 0 && (
+            <div style={{
+              fontSize: 10.5, color: 'var(--geo-text-muted)', marginBottom: 9,
+              lineHeight: 1.45,
+            }}>
+              {s.capas.slice(0, 4).join(' · ')}
+              {s.capas.length > 4 && ` · y ${s.capas.length - 4} más`}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="geo-btn" style={{ flex: 1, justifyContent: 'center' }}
+              onClick={() => abrir(s.id, true)}>
+              <ExternalLink size={11} /> Abrir
+            </button>
+            <button className="geo-btn" style={{ flex: 1, justifyContent: 'center' }}
+              onClick={() => abrir(s.id, false)}>
+              <Download size={11} /> Descargar
+            </button>
+            <button className="geo-btn danger" style={{ justifyContent: 'center' }}
+              onClick={() => eliminar(s.id, s.nombre)}>
+              <Trash2 size={11} />
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {/* Es una advertencia, no una nota al pie: va en un tono que se lea. */}
+      <p style={{
+        fontSize: 10.5, color: '#8f95a9', lineHeight: 1.55,
+        margin: '16px 2px 0',
+      }}>
+        Los planos se guardan en este navegador y en este equipo. Si limpias los
+        datos del navegador se pierden, así que conserva aparte los que importen.
+      </p>
     </div>
   );
 }

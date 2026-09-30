@@ -95,8 +95,12 @@ interface GeoStore {
   logout: () => void;
 
   // UI
-  leftPanelTab: 'layers' | 'upload' | 'analysis';
-  setLeftPanelTab: (t: 'layers' | 'upload' | 'analysis') => void;
+  leftPanelTab: 'layers' | 'upload' | 'analysis' | 'salidas';
+  setLeftPanelTab: (t: 'layers' | 'upload' | 'analysis' | 'salidas') => void;
+  /** Sube en uno cada vez que se guarda o se borra un plano, para que la
+   *  pestaña de salidas sepa que debe volver a leer el almacén. */
+  salidasVersion: number;
+  refrescarSalidas: () => void;
   rightPanelOpen: boolean;
   setRightPanelOpen: (open: boolean) => void;
   streetViewCoords: { lat: number; lng: number } | null;
@@ -268,6 +272,8 @@ export const useGeoStore = create<GeoStore>((set, get) => ({
   // UI
   leftPanelTab: 'layers',
   setLeftPanelTab: (leftPanelTab) => set({ leftPanelTab }),
+  salidasVersion: 0,
+  refrescarSalidas: () => set((s) => ({ salidasVersion: s.salidasVersion + 1 })),
   rightPanelOpen: false,
   setRightPanelOpen: (rightPanelOpen) => set({ rightPanelOpen }),
   streetViewCoords: null,

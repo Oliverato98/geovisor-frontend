@@ -18,6 +18,7 @@ import jsPDF from 'jspdf';
 import proj4 from 'proj4';
 import { useGeoStore, type GeoLayer, type RasterLayer } from '../../store/useGeoStore';
 import { sincronizarRasters, idCapaRaster, coloresDe, textoClase } from '../../services/rasterMapa';
+import { descargar, guardarSalida } from '../../services/salidas';
 import {
   type Prim, type Contexto,
   ESTILOS_NORTE, ESTILOS_ESCALA, CAMPOS_DINAMICOS,
@@ -383,7 +384,7 @@ function plantilla(
 export default function PlanoLayout() {
   const {
     map, layers, addNotification, toggleLayerVisibility,
-    rasterLayers, toggleRasterVisibility,
+    rasterLayers, toggleRasterVisibility, refrescarSalidas, setLeftPanelTab,
   } = useGeoStore();
 
   const [abierto, setAbierto] = useState(false);
@@ -399,6 +400,11 @@ export default function PlanoLayout() {
   const [selId, setSelId] = useState<string | null>(null);
   const [generando, setGenerando] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);   // galería desplegable abierta
+  // Plano recién exportado, a la espera de que se decida si se guarda.
+  const [porGuardar, setPorGuardar] = useState<
+    { pdf: Blob; nombre: string; archivo: string } | null
+  >(null);
+  const [nombreGuardado, setNombreGuardado] = useState('');
 
   const [entidad, setEntidad] = useState('Alcaldía Municipal de Calarcá — Quindío');
   const [elaboro, setElaboro] = useState('');
@@ -1031,14 +1037,46 @@ export default function PlanoLayout() {
       }
 
       const tEl = elementos.find((e) => e.tipo === 'titulo');
-      const nombre = resolverTexto(tEl?.texto ?? 'plano', ctxPdf).trim()
-        .replace(/[^\w\sáéíóúñÁÉÍÓÚÑ-]/g, '').replace(/\s+/g, '_');
-      pdf.save(`${nombre || 'plano'}_1-${escala}.pdf`);
+      const titulo = resolverTexto(tEl?.texto ?? 'Plano', ctxPdf).trim();
+      const nombre = titulo.replace(/[^\w\sáéíóúñÁÉÍÓÚÑ-]/g, '').replace(/\s+/g, '_');
+      const archivo = `${nombre || 'plano'}_1-${escala}.pdf`;
+
+      // El archivo se descarga siempre; lo que se pregunta es si además queda
+      // guardado en el geovisor, en la pestaña de salidas gráficas.
+      descargar(pdf.output('blob'), archivo);
       addNotification({ type: 'success', message: 'Plano generado.' });
+      setNombreGuardado(titulo || 'Plano sin título');
+      setPorGuardar({
+        pdf: pdf.output('blob'),
+        nombre: titulo || 'Plano sin título',
+        archivo,
+      });
     } catch (e) {
       addNotification({ type: 'error', message: e instanceof Error ? e.message : 'No se pudo generar el plano.' });
     } finally {
       setGenerando(false);
+    }
+  };
+
+  const confirmarGuardado = async () => {
+    if (!porGuardar) return;
+    try {
+      await guardarSalida({
+        nombre: nombreGuardado.trim() || porGuardar.nombre,
+        escala,
+        papel: `${papel} · ${horizontal ? 'horizontal' : 'vertical'}`,
+        capas: convencionesFinal.filter((c) => !c.encabezado).map((c) => c.texto),
+        pdf: porGuardar.pdf,
+      });
+      setPorGuardar(null);
+      refrescarSalidas();
+      setLeftPanelTab('salidas');
+      addNotification({ type: 'success', message: 'Guardado en Salidas.' });
+    } catch (e) {
+      addNotification({
+        type: 'error',
+        message: e instanceof Error ? e.message : 'No se pudo guardar el plano.',
+      });
     }
   };
 
@@ -1729,6 +1767,39 @@ export default function PlanoLayout() {
         <div style={{ flex: 1 }} />
         <span>{convenciones.length} capa{convenciones.length === 1 ? '' : 's'} en convenciones</span>
       </footer>
+
+      {/* El plano ya se descargó; aquí se decide si además queda archivado. */}
+      {porGuardar && (
+        <div className="pl-velo" onClick={(e) => e.stopPropagation()}>
+          <div className="pl-dialogo">
+            <h2>Guardar en el geovisor</h2>
+            <p>
+              El archivo ya se descargó. ¿Quieres conservarlo también en la
+              pestaña <b>Salidas</b>, para volver a abrirlo desde el geovisor?
+            </p>
+
+            <label className="pl-dialogo-campo">
+              Nombre del plano
+              <input
+                className="pl-campo"
+                value={nombreGuardado}
+                autoFocus
+                onChange={(e) => setNombreGuardado(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') confirmarGuardado(); }}
+              />
+            </label>
+
+            <div className="pl-dialogo-botones">
+              <button type="button" className="pl-boton-sec" onClick={() => setPorGuardar(null)}>
+                No, solo descargarlo
+              </button>
+              <button type="button" className="pl-boton-pri" onClick={confirmarGuardado}>
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2285,6 +2356,40 @@ const CSS_PLANO = `
   transition: border-color .15s, color .15s;
 }
 .pl-boton-sec:hover { border-color: var(--pl-acento); color: var(--pl-acento); }
+.pl-boton-pri {
+  padding: 8px 16px; font: inherit; font-size: 12px; font-weight: 600;
+  cursor: pointer; border: none; border-radius: 6px;
+  background: var(--pl-acento); color: #07110D;
+}
+.pl-boton-pri:hover { filter: brightness(1.08); }
+
+.pl-velo {
+  position: absolute; inset: 0; z-index: 60;
+  display: grid; place-items: center;
+  background: rgba(8, 10, 14, 0.62);
+  backdrop-filter: blur(2px);
+}
+.pl-dialogo {
+  width: min(420px, calc(100vw - 48px));
+  padding: 22px 22px 18px;
+  background: var(--pl-elevado); color: var(--pl-tinta);
+  border: 1px solid var(--pl-linea); border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+.pl-dialogo h2 {
+  margin: 0 0 8px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
+}
+.pl-dialogo p {
+  margin: 0 0 16px; font-size: 12.5px; line-height: 1.55; color: var(--pl-tinta-2);
+}
+.pl-dialogo-campo {
+  display: block; font-size: 11px; color: var(--pl-tinta-2); margin-bottom: 18px;
+}
+.pl-dialogo-campo .pl-campo { margin-top: 6px; }
+.pl-dialogo-botones {
+  display: flex; gap: 8px; justify-content: flex-end; align-items: center;
+}
+.pl-dialogo-botones .pl-boton-sec { width: auto; margin-top: 0; }
 
 .pl-color { display: flex; align-items: center; gap: 9px; }
 .pl-color input {
