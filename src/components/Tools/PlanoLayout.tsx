@@ -16,7 +16,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import jsPDF from 'jspdf';
 import proj4 from 'proj4';
-import { useGeoStore, type GeoLayer } from '../../store/useGeoStore';
+import { useGeoStore, type GeoLayer, type RasterLayer } from '../../store/useGeoStore';
+import { sincronizarRasters, idCapaRaster } from '../../services/rasterMapa';
 import {
   type Prim, type Contexto,
   ESTILOS_NORTE, ESTILOS_ESCALA, CAMPOS_DINAMICOS,
@@ -91,6 +92,15 @@ const SIN_ESQUINAS: Esquinas = { si: '—', sd: '—', ii: '—', id: '—', cen
 const mppImpresion = (escala: number) => (escala * 25.4) / (DPI * 1000);
 const zoomPara = (mpp: number, lat: number) =>
   Math.log2((156543.03392804097 * Math.cos((lat * Math.PI) / 180)) / mpp);
+
+/** Una fila de las convenciones, venga de una capa vectorial o de un ráster. */
+interface Convencion {
+  clave: string;
+  texto: string;
+  /** Un color para un vector; la rampa completa para un ráster. */
+  colores: string[];
+  forma: 'punto' | 'linea' | 'area' | 'rampa';
+}
 
 function tipoGeom(l: GeoLayer): 'point' | 'line' | 'polygon' {
   const g = (l.geometry_type ?? '').toLowerCase();
@@ -294,7 +304,10 @@ function plantilla(dim: { ancho: number; alto: number }, horizontal: boolean, nC
 /* ------------------------------------------------------------ componente */
 
 export default function PlanoLayout() {
-  const { map, layers, addNotification, toggleLayerVisibility } = useGeoStore();
+  const {
+    map, layers, addNotification, toggleLayerVisibility,
+    rasterLayers, toggleRasterVisibility,
+  } = useGeoStore();
 
   const [abierto, setAbierto] = useState(false);
   const [papel, setPapel] = useState<Papel>('A3');
@@ -342,6 +355,29 @@ export default function PlanoLayout() {
   }, [hojaAncho, hojaAlto]);
 
   const visibles = useMemo(() => layers.filter((l) => l.visible), [layers]);
+  const visiblesRaster = useMemo(
+    () => rasterLayers.filter((r) => r.visible),
+    [rasterLayers]
+  );
+
+  // Las convenciones mezclan capas vectoriales y ráster. Un vector aporta un
+  // solo color; un ráster aporta su rampa entera, que se dibuja como una tira
+  // de colores igual que la muestra ArcGIS cuando la capa está plegada.
+  const convenciones = useMemo<Convencion[]>(() => [
+    ...visibles.map((c) => ({
+      clave: `v${c.id}`,
+      texto: c.name.replace(/_/g, ' '),
+      colores: [colorCapa(c)],
+      forma: ({ point: 'punto', line: 'linea', polygon: 'area' } as const)[tipoGeom(c)],
+    })),
+    ...visiblesRaster.map((r) => ({
+      clave: `r${r.id}`,
+      texto: r.nombre,
+      colores: r.leyenda ? r.leyenda.map((c) => c.color) : (r.muestras ?? ['#888888']),
+      forma: 'rampa' as const,
+    })),
+  ], [visibles, visiblesRaster]);
+
   const elMapa = elementos.find((e) => e.id === 'mapa')!;
   const elNorte = elementos.find((e) => e.tipo === 'norte');
   const elEscala = elementos.find((e) => e.tipo === 'escala');
@@ -349,7 +385,7 @@ export default function PlanoLayout() {
 
   const ctx: Contexto = {
     escala, fecha: fechaHoy(), entidad, elaboro, fuente,
-    capas: visibles.map((c) => c.name.replace(/_/g, ' ')),
+    capas: convenciones.map((c) => c.texto),
     grilla: grilla ? `cada ${fmt(espActual)} m` : 'sin grilla',
     esquinas,
   };
@@ -410,6 +446,37 @@ export default function PlanoLayout() {
     const t = setTimeout(refrescar, 300);
     return () => clearTimeout(t);
   }, [ajustarZoom, refrescar, vista, elMapa.alto]);
+
+  // El plano se dibuja sobre un mapa propio, clonado del principal al abrir el
+  // compositor. Los interruptores de capas cambian el mapa del geovisor, no
+  // este, así que hay que reflejar aquí cada encendido y apagado o la vista
+  // previa se queda mostrando lo que había cuando se abrió.
+  useEffect(() => {
+    const prev = previewRef.current;
+    if (!abierto || !prev || !prev.isStyleLoaded()) return;
+
+    layers.forEach((c) => {
+      for (const id of [`lyr-${c.id}`, `lyr-${c.id}-outline`]) {
+        if (prev.getLayer(id)) {
+          prev.setLayoutProperty(id, 'visibility', c.visible ? 'visible' : 'none');
+        }
+      }
+    });
+
+    // Un ráster encendido después de abrir el compositor todavía no existe en
+    // este mapa, así que aquí se crea igual que en el principal.
+    sincronizarRasters(prev, rasterLayers);
+    rasterLayers.forEach((r) => {
+      const id = idCapaRaster(r.id);
+      if (prev.getLayer(id)) {
+        prev.setLayoutProperty(id, 'visibility', r.visible ? 'visible' : 'none');
+        prev.setPaintProperty(id, 'raster-opacity', r.opacity);
+      }
+    });
+
+    const t = setTimeout(refrescar, 220);
+    return () => clearTimeout(t);
+  }, [abierto, layers, rasterLayers, refrescar]);
 
   /* ------------------------------------------------------- arrastrar */
 
@@ -514,16 +581,18 @@ export default function PlanoLayout() {
 
   /** Encuadra una capa en el marco: la centra y sube a la escala más
    *  cercana que la contenga completa. */
-  const irACapa = (c: GeoLayer) => {
+  const encuadrar = (
+    oeste: number, sur: number, este: number, norte: number, titulo: string
+  ) => {
     const prev = previewRef.current;
-    if (!prev || c.bbox_minx == null) return;
+    if (!prev || oeste == null) return;
 
-    const cx = (c.bbox_minx + c.bbox_maxx) / 2;
-    const cy = (c.bbox_miny + c.bbox_maxy) / 2;
+    const cx = (oeste + este) / 2;
+    const cy = (sur + norte) / 2;
 
     // Grados a metros en esta latitud
-    const anchoM = (c.bbox_maxx - c.bbox_minx) * 111320 * Math.cos((cy * Math.PI) / 180);
-    const altoM = (c.bbox_maxy - c.bbox_miny) * 110540;
+    const anchoM = (este - oeste) * 111320 * Math.cos((cy * Math.PI) / 180);
+    const altoM = (norte - sur) * 110540;
 
     // Escala mínima que hace caber la capa en el marco, con 8% de margen
     const necesaria = Math.max(anchoM / (elMapa.ancho / 1000), altoM / (elMapa.alto / 1000)) * 1.08;
@@ -534,9 +603,15 @@ export default function PlanoLayout() {
     setTimeout(refrescar, 320);
     addNotification({
       type: 'info',
-      message: `${c.name.replace(/_/g, ' ')} · escala 1:${nueva.toLocaleString('es-CO')}`,
+      message: `${titulo} · escala 1:${nueva.toLocaleString('es-CO')}`,
     });
   };
+
+  const irACapa = (c: GeoLayer) =>
+    encuadrar(c.bbox_minx, c.bbox_miny, c.bbox_maxx, c.bbox_maxy, c.name.replace(/_/g, ' '));
+
+  const irARaster = (r: RasterLayer) =>
+    encuadrar(r.esquinas[0][0], r.esquinas[2][1], r.esquinas[1][0], r.esquinas[0][1], r.nombre);
 
   /* ---------------------------------------------------- exportar PDF */
 
@@ -677,21 +752,39 @@ export default function PlanoLayout() {
           case 'convenciones': {
             const cols = el.columnas ?? 1, esp = el.espaciado ?? 4;
             const anchoCol = el.ancho / cols;
-            const filas = Math.ceil(Math.max(visibles.length, 1) / cols);
+            const filas = Math.ceil(Math.max(convenciones.length, 1) / cols);
             conColor(el); pdf.setFont('helvetica', 'bold'); pdf.setFontSize((el.tamano ?? 6.5) + 1);
             pdf.text('Convenciones', el.x, el.y);
             pdf.setFontSize(el.tamano ?? 6.5);
-            visibles.forEach((capa, i) => {
+            convenciones.forEach((conv, i) => {
               const c = Math.floor(i / filas), fila = i % filas;
               const cx = el.x + c * anchoCol, cy = el.y + 4.5 + fila * esp;
-              const [r, g, b] = hexARgb(colorCapa(capa));
-              const t = tipoGeom(capa);
-              pdf.setFillColor(r, g, b); pdf.setDrawColor(60, 60, 60); pdf.setLineWidth(0.2);
-              if (t === 'polygon') pdf.rect(cx, cy - 2.2, 4.5, 2.8, 'FD');
-              else if (t === 'line') { pdf.setDrawColor(r, g, b); pdf.setLineWidth(0.7); pdf.line(cx, cy - 1, cx + 4.5, cy - 1); }
-              else pdf.circle(cx + 2.2, cy - 1, 1.1, 'FD');
+              pdf.setDrawColor(60, 60, 60); pdf.setLineWidth(0.2);
+
+              if (conv.forma === 'rampa') {
+                // jsPDF no dibuja degradados: la rampa va como una tira de
+                // rectángulos contiguos, que además es más honesta cuando los
+                // colores son clases y no un continuo.
+                const n = conv.colores.length;
+                const paso = 4.5 / n;
+                conv.colores.forEach((hex, k) => {
+                  const [r, g, b] = hexARgb(hex);
+                  pdf.setFillColor(r, g, b);
+                  pdf.rect(cx + k * paso, cy - 2.2, paso + 0.02, 2.8, 'F');
+                });
+                pdf.rect(cx, cy - 2.2, 4.5, 2.8, 'D');
+              } else {
+                const [r, g, b] = hexARgb(conv.colores[0]);
+                pdf.setFillColor(r, g, b);
+                if (conv.forma === 'area') pdf.rect(cx, cy - 2.2, 4.5, 2.8, 'FD');
+                else if (conv.forma === 'linea') {
+                  pdf.setDrawColor(r, g, b); pdf.setLineWidth(0.7);
+                  pdf.line(cx, cy - 1, cx + 4.5, cy - 1);
+                } else pdf.circle(cx + 2.2, cy - 1, 1.1, 'FD');
+              }
+
               conColor(el); conFuente(el);
-              const txt = pdf.splitTextToSize(capa.name.replace(/_/g, ' '), anchoCol - 6.5) as string[];
+              const txt = pdf.splitTextToSize(conv.texto, anchoCol - 6.5) as string[];
               pdf.text(txt[0], cx + 6, cy);
             });
             break;
@@ -972,7 +1065,7 @@ export default function PlanoLayout() {
 
           <div className="pl-panel-cabeza pl-cabeza-2">
             Capas del mapa
-            <span className="pl-conteo">{visibles.length}/{layers.length}</span>
+            <span className="pl-conteo">{convenciones.length}/{layers.length + rasterLayers.length}</span>
           </div>
           <div className="pl-panel-scroll pl-capas">
             {layers.length === 0 && (
@@ -993,6 +1086,28 @@ export default function PlanoLayout() {
                 <span className="pl-fila-nombre">{c.name.replace(/_/g, ' ')}</span>
                 <button type="button" className="pl-zoom" title="Encuadrar esta capa"
                   onClick={(e) => { e.stopPropagation(); irACapa(c); }}>
+                  <Icono nombre="encuadrar" tam={13} />
+                </button>
+              </div>
+            ))}
+
+            <div className="pl-subcabeza">Ráster del estudio</div>
+            {rasterLayers.map((r) => (
+              <div key={r.id} className={`pl-fila${r.visible ? '' : ' es-oculto'}`}>
+                <button type="button" className="pl-ojo"
+                  title={r.visible ? 'Quitar del plano' : 'Poner en el plano'}
+                  onClick={(e) => { e.stopPropagation(); toggleRasterVisibility(r.id); }}>
+                  <Icono nombre={r.visible ? 'ojo' : 'ojoCerrado'} tam={14} />
+                </button>
+                <span className="pl-punto" style={{
+                  borderRadius: 2, height: 8,
+                  background: `linear-gradient(135deg, ${
+                    (r.leyenda ? r.leyenda.map((c) => c.color) : r.muestras ?? ['#888']).join(', ')
+                  })`,
+                }} />
+                <span className="pl-fila-nombre">{r.nombre}</span>
+                <button type="button" className="pl-zoom" title="Encuadrar este ráster"
+                  onClick={(e) => { e.stopPropagation(); irARaster(r); }}>
                   <Icono nombre="encuadrar" tam={13} />
                 </button>
               </div>
@@ -1114,29 +1229,33 @@ export default function PlanoLayout() {
 
               if (el.tipo === 'convenciones') {
                 const cols = el.columnas ?? 1, esp = el.espaciado ?? 4;
-                const filas = Math.ceil(Math.max(visibles.length, 1) / cols);
+                const filas = Math.ceil(Math.max(convenciones.length, 1) / cols);
                 const anchoCol = (el.ancho / cols) * vista;
                 return (
                   <div {...comun}>
                     <div style={{ fontSize: ((el.tamano ?? 6.5) + 1) * PT * vista, fontWeight: 700 }}>Convenciones</div>
                     <div style={{ position: 'relative', height: (4.5 + filas * esp) * vista }}>
-                      {visibles.map((c, i) => {
-                        const cc = Math.floor(i / filas), fila = i % filas, t = tipoGeom(c);
+                      {convenciones.map((c, i) => {
+                        const cc = Math.floor(i / filas), fila = i % filas;
+                        const relleno = c.forma === 'rampa'
+                          ? `linear-gradient(to right, ${c.colores.join(', ')})`
+                          : c.colores[0];
                         return (
-                          <div key={c.id} style={{
+                          <div key={c.clave} style={{
                             position: 'absolute', left: cc * anchoCol, top: (1 + fila * esp) * vista,
                             width: anchoCol, display: 'flex', alignItems: 'center', gap: 1.6 * vista,
                           }}>
                             <span style={{
                               flexShrink: 0, width: 4.5 * vista,
-                              height: t === 'line' ? 0.8 * vista : 2.8 * vista,
-                              background: colorCapa(c), borderRadius: t === 'point' ? '50%' : 0,
-                              border: t === 'line' ? 'none' : '0.5px solid rgba(0,0,0,.45)',
+                              height: c.forma === 'linea' ? 0.8 * vista : 2.8 * vista,
+                              background: relleno,
+                              borderRadius: c.forma === 'punto' ? '50%' : 0,
+                              border: c.forma === 'linea' ? 'none' : '0.5px solid rgba(0,0,0,.45)',
                             }} />
                             <span style={{
                               fontSize: (el.tamano ?? 6.5) * PT * vista, whiteSpace: 'nowrap',
                               overflow: 'hidden', textOverflow: 'ellipsis',
-                            }}>{c.name.replace(/_/g, ' ')}</span>
+                            }}>{c.texto}</span>
                           </div>
                         );
                       })}
@@ -1309,7 +1428,7 @@ export default function PlanoLayout() {
         <span className="pl-sep" />
         <span>CTM12 · EPSG:9377</span>
         <div style={{ flex: 1 }} />
-        <span>{visibles.length} capa{visibles.length === 1 ? '' : 's'} en convenciones</span>
+        <span>{convenciones.length} capa{convenciones.length === 1 ? '' : 's'} en convenciones</span>
       </footer>
     </div>
   );
@@ -1802,6 +1921,11 @@ const CSS_PLANO = `
 /* Segunda sección del panel izquierdo: capas del geovisor */
 .pl-cabeza-2 { border-top: 1px solid var(--pl-linea-soft); margin-top: 2px; }
 .pl-capas { flex: 0 0 auto; max-height: 42%; }
+.pl-subcabeza {
+  font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--pl-tinta-3); padding: 9px 2px 4px; margin-top: 4px;
+  border-top: 1px solid var(--pl-linea-soft);
+}
 .pl-sin-capas {
   margin: 10px 13px; font-size: 11.5px; color: var(--pl-tinta-3); line-height: 1.5;
 }

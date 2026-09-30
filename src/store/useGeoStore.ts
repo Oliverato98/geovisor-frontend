@@ -5,6 +5,7 @@
  */
 import { create } from 'zustand';
 import type { Map as MapLibreMap } from 'maplibre-gl';
+import { RASTERS, type RasterInfo } from '../data/rasters';
 
 export type BaseMap = 'osm' | 'satellite' | 'topo' | 'dark';
 export type ActiveTool = 'none' | 'measure-distance' | 'measure-area' | 'draw-point' | 'draw-line' | 'draw-polygon' | 'identify';
@@ -27,6 +28,15 @@ export interface GeoLayer {
   protegida?: boolean;
   tile_url?: string;
   // Estado UI local
+  visible: boolean;
+  opacity: number;
+}
+
+/**
+ * Una capa ráster del estudio. A diferencia de las vectoriales no vive en la
+ * base de datos: es una imagen del propio geovisor, anclada por sus esquinas.
+ */
+export interface RasterLayer extends RasterInfo {
   visible: boolean;
   opacity: number;
 }
@@ -59,6 +69,12 @@ interface GeoStore {
   toggleLayerVisibility: (id: number) => void;
   setLayerOpacity: (id: number, opacity: number) => void;
   updateLayerStyle: (id: number, style: Record<string, unknown>) => void;
+
+  // Capas ráster
+  rasterLayers: RasterLayer[];
+  toggleRasterVisibility: (id: string) => void;
+  setRasterOpacity: (id: string, opacity: number) => void;
+  hideAllRasters: () => void;
 
   // Herramientas
   activeTool: ActiveTool;
@@ -161,6 +177,24 @@ export const useGeoStore = create<GeoStore>((set, get) => ({
   updateLayerStyle: (id, style) =>
     set((s) => ({
       layers: s.layers.map((l) => (l.id === id ? { ...l, style } : l)),
+    })),
+
+  // Capas ráster. Nacen apagadas: son trece y encendidas de entrada taparían
+  // el mapa entero. Al 80 % de opacidad se sigue leyendo el fondo debajo.
+  rasterLayers: RASTERS.map((r) => ({ ...r, visible: false, opacity: 0.8 })),
+  toggleRasterVisibility: (id) =>
+    set((s) => ({
+      rasterLayers: s.rasterLayers.map((r) =>
+        r.id === id ? { ...r, visible: !r.visible } : r
+      ),
+    })),
+  setRasterOpacity: (id, opacity) =>
+    set((s) => ({
+      rasterLayers: s.rasterLayers.map((r) => (r.id === id ? { ...r, opacity } : r)),
+    })),
+  hideAllRasters: () =>
+    set((s) => ({
+      rasterLayers: s.rasterLayers.map((r) => ({ ...r, visible: false })),
     })),
 
   // Herramientas

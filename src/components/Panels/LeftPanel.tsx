@@ -7,9 +7,10 @@ import { useDropzone } from 'react-dropzone';
 import {
   Layers, Upload, Activity, Eye, EyeOff, Trash2,
   ZoomIn, Download, ChevronDown, ChevronRight,
-  MapPin, Minus, Square, AlertTriangle, Palette, Lock
+  MapPin, Minus, Square, AlertTriangle, Palette, Lock, Mountain
 } from 'lucide-react';
-import { useGeoStore } from '../../store/useGeoStore';
+import { useGeoStore, type RasterLayer } from '../../store/useGeoStore';
+import { GRUPOS_RASTER } from '../../data/rasters';
 import { layersApi, uploadApi, analysisApi } from '../../services/api';
 
 // ── Panel principal ───────────────────────────────────────────────────────────
@@ -121,6 +122,14 @@ function LayersTab() {
 
   return (
     <div style={{ height: '100%', overflowY: 'auto', padding: 12 }}>
+      <RasterSection />
+
+      {layers.length > 0 && (
+        <div className="geo-section-title" style={{ marginTop: 4 }}>
+          Capas vectoriales
+        </div>
+      )}
+
       {layers.length === 0 ? (
         <div style={{ textAlign: 'center', color: 'var(--geo-text-hint)', marginTop: 48 }}>
           <Layers size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
@@ -226,6 +235,210 @@ function LayersTab() {
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+// ── Sección: capas ráster ─────────────────────────────────────────────────────
+/**
+ * Los ráster del estudio de amenaza. No viven en la base de datos: son
+ * imágenes del propio geovisor, así que aquí no hay borrar ni exportar,
+ * solo encender, graduar y leer la leyenda.
+ */
+function RasterSection() {
+  const { rasterLayers, toggleRasterVisibility, setRasterOpacity, hideAllRasters } = useGeoStore();
+  const [abierta, setAbierta] = useState<string | null>(null);
+  const [plegada, setPlegada] = useState(false);
+
+  const encendidas = rasterLayers.filter((r) => r.visible).length;
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div
+        onClick={() => setPlegada(!plegada)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+          padding: '2px 0 8px',
+        }}
+      >
+        {plegada ? <ChevronRight size={12} color="var(--geo-text-hint)" />
+                 : <ChevronDown size={12} color="var(--geo-text-hint)" />}
+        <Mountain size={12} color="var(--geo-text-muted)" />
+        <span style={{
+          flex: 1, fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
+          textTransform: 'uppercase', color: 'var(--geo-text-muted)',
+        }}>
+          Ráster del estudio
+        </span>
+        <span style={{
+          fontSize: 10, fontFamily: 'DM Mono, monospace',
+          color: encendidas ? 'var(--geo-accent)' : 'var(--geo-text-hint)',
+        }}>
+          {encendidas}/{rasterLayers.length}
+        </span>
+        {encendidas > 0 && (
+          <button
+            title="Apagar todos los ráster"
+            onClick={(e) => { e.stopPropagation(); hideAllRasters(); }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--geo-text-hint)', padding: 2, display: 'flex',
+            }}
+          >
+            <EyeOff size={12} />
+          </button>
+        )}
+      </div>
+
+      {!plegada && GRUPOS_RASTER.map((grupo) => {
+        const delGrupo = rasterLayers.filter((r) => r.grupo === grupo);
+        if (delGrupo.length === 0) return null;
+
+        return (
+          <div key={grupo} style={{ marginBottom: 6 }}>
+            <div style={{
+              fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase',
+              color: 'var(--geo-text-hint)', padding: '4px 2px 5px',
+            }}>
+              {grupo}
+            </div>
+
+            {delGrupo.map((r) => (
+              <div key={r.id} style={{
+                background: 'var(--geo-panel-alt)',
+                border: `1px solid ${abierta === r.id ? 'var(--geo-accent)' : 'var(--geo-border)'}`,
+                borderRadius: 7, marginBottom: 5, overflow: 'hidden',
+                transition: 'border-color 0.15s',
+              }}>
+                <div style={{ padding: '7px 9px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    onClick={() => toggleRasterVisibility(r.id)}
+                    title={r.visible ? 'Quitar del mapa' : 'Poner en el mapa'}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                      color: r.visible ? 'var(--geo-accent)' : 'var(--geo-text-hint)',
+                      display: 'flex',
+                    }}
+                  >
+                    {r.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                  </button>
+
+                  <MuestraRaster raster={r} />
+
+                  <span style={{
+                    flex: 1, fontSize: 11.5, fontWeight: 500,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    color: r.visible ? 'var(--geo-text)' : 'var(--geo-text-muted)',
+                  }}>
+                    {r.nombre}
+                  </span>
+
+                  <button
+                    onClick={() => setAbierta(abierta === r.id ? null : r.id)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--geo-text-hint)', padding: 2, display: 'flex' }}
+                  >
+                    {abierta === r.id ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  </button>
+                </div>
+
+                {abierta === r.id && (
+                  <div style={{ padding: '0 9px 9px', borderTop: '1px solid var(--geo-border)' }}>
+                    <p style={{ fontSize: 11, lineHeight: 1.5, color: '#a8aec0', margin: '8px 0 10px' }}>
+                      {r.nota}
+                    </p>
+
+                    <LeyendaRaster raster={r} />
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '10px 0 5px' }}>
+                      <span style={{ fontSize: 10, color: 'var(--geo-text-hint)' }}>Opacidad</span>
+                      <span style={{ fontSize: 10, color: 'var(--geo-text-muted)', fontFamily: 'DM Mono, monospace' }}>
+                        {Math.round(r.opacity * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range" className="geo-slider"
+                      min={0.1} max={1} step={0.05}
+                      value={r.opacity}
+                      onChange={(e) => setRasterOpacity(r.id, parseFloat(e.target.value))}
+                    />
+
+                    <button
+                      className="geo-btn"
+                      style={{ width: '100%', justifyContent: 'center', marginTop: 9 }}
+                      onClick={() => (window as any).__zoomToBBox?.([
+                        r.esquinas[0][0], r.esquinas[2][1],
+                        r.esquinas[1][0], r.esquinas[0][1],
+                      ])}
+                    >
+                      <ZoomIn size={11} /> Encuadrar
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Cuadrito de color junto al nombre: la rampa completa en miniatura. */
+function MuestraRaster({ raster }: { raster: RasterLayer }) {
+  const colores = raster.leyenda
+    ? raster.leyenda.map((c) => c.color)
+    : raster.muestras ?? ['#666'];
+
+  return (
+    <span style={{
+      width: 12, height: 12, borderRadius: 3, flexShrink: 0,
+      border: '1px solid var(--geo-border-hi)',
+      background: colores.length === 1
+        ? colores[0]
+        : `linear-gradient(135deg, ${colores.join(', ')})`,
+      opacity: raster.visible ? 1 : 0.45,
+    }} />
+  );
+}
+
+/** Leyenda: lista de clases si el ráster es discreto, barra continua si no. */
+function LeyendaRaster({ raster }: { raster: RasterLayer }) {
+  if (raster.leyenda) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {raster.leyenda.map((c) => (
+          <div key={c.texto} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span style={{
+              width: 14, height: 10, borderRadius: 2, background: c.color,
+              border: '1px solid var(--geo-border-hi)', flexShrink: 0,
+            }} />
+            <span style={{ fontSize: 11, color: '#c2c7d4' }}>{c.texto}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const muestras = raster.muestras ?? [];
+  const numero = (v?: number) =>
+    v == null ? '' : v.toLocaleString('es-CO', { maximumFractionDigits: 1 });
+
+  return (
+    <div>
+      <div style={{
+        height: 9, borderRadius: 3, border: '1px solid var(--geo-border-hi)',
+        background: `linear-gradient(to right, ${muestras.join(', ')})`,
+      }} />
+      {/* Los extremos de la rampa son el dato, no una decoración: van en un
+          tono aclarado del gris del panel para que se lean de verdad. */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', marginTop: 4,
+        fontSize: 10, fontFamily: 'DM Mono, monospace', color: '#8f95a9',
+      }}>
+        <span>{numero(raster.minimo)}</span>
+        <span>{raster.unidad}{raster.logaritmico ? ' · log' : ''}</span>
+        <span>{numero(raster.maximo)}</span>
+      </div>
     </div>
   );
 }

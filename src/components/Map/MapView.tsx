@@ -7,6 +7,7 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useGeoStore } from '../../store/useGeoStore';
 import { BASEMAPS, MARTIN_URL } from '../../services/api';
+import { sincronizarRasters } from '../../services/rasterMapa';
 import * as turf from '@turf/turf';
 
 // Calarcá, Quindío — centro del mapa por defecto
@@ -24,7 +25,7 @@ export default function MapView() {
     setMap, baseMap, layers, activeTool,
     setMeasureResult, setSelectedFeature, setRightPanelOpen,
     setStreetViewCoords, addNotification, user,
-    analysisLayers,
+    analysisLayers, rasterLayers,
   } = useGeoStore();
 
   // Los clics de capa se registran una sola vez por capa, así que la herramienta
@@ -59,14 +60,29 @@ export default function MapView() {
     };
   }, [setMap]);
 
+  // ── Sincronizar capas ráster ──────────────────────────────────────────────
+  const syncRasters = useCallback((map: maplibregl.Map) => {
+    sincronizarRasters(map, rasterLayers);
+  }, [rasterLayers]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    syncRasters(map);
+  }, [rasterLayers, syncRasters]);
+
   // ── Cambiar mapa base ─────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const style = BASEMAPS[baseMap].style;
     map.setStyle(style);
-    // Re-agregar capas GIS después de cambiar estilo
-    map.once('styledata', () => syncLayers(map));
+    // Cambiar de estilo vacía el mapa: hay que volver a poner lo nuestro.
+    // Los ráster primero, para que las vectoriales queden encima.
+    map.once('styledata', () => {
+      syncRasters(map);
+      syncLayers(map);
+    });
   }, [baseMap]);
 
   // ── Sincronizar capas GIS ─────────────────────────────────────────────────
