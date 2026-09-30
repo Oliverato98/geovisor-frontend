@@ -5,7 +5,8 @@
  */
 import { create } from 'zustand';
 import type { Map as MapLibreMap } from 'maplibre-gl';
-import { RASTERS, type RasterInfo } from '../data/rasters';
+import { RASTERS } from '../data/rasters';
+import type { RasterEnMapa } from '../services/rasterMapa';
 
 export type BaseMap = 'osm' | 'satellite' | 'topo' | 'dark';
 export type ActiveTool = 'none' | 'measure-distance' | 'measure-area' | 'draw-point' | 'draw-line' | 'draw-polygon' | 'identify';
@@ -34,12 +35,10 @@ export interface GeoLayer {
 
 /**
  * Una capa ráster del estudio. A diferencia de las vectoriales no vive en la
- * base de datos: es una imagen del propio geovisor, anclada por sus esquinas.
+ * base de datos: es una imagen del propio geovisor, anclada por sus esquinas
+ * y coloreada en el navegador.
  */
-export interface RasterLayer extends RasterInfo {
-  visible: boolean;
-  opacity: number;
-}
+export type RasterLayer = RasterEnMapa;
 
 export interface User {
   id: number;
@@ -74,6 +73,11 @@ interface GeoStore {
   rasterLayers: RasterLayer[];
   toggleRasterVisibility: (id: string) => void;
   setRasterOpacity: (id: string, opacity: number) => void;
+  setRasterRampa: (id: string, rampa: string) => void;
+  toggleRasterInvertida: (id: string) => void;
+  setRasterColorClase: (id: string, indice: number, color: string) => void;
+  setRasterEtiquetaClase: (id: string, indice: number, texto: string) => void;
+  resetRasterColores: (id: string) => void;
   hideAllRasters: () => void;
 
   // Herramientas
@@ -191,6 +195,40 @@ export const useGeoStore = create<GeoStore>((set, get) => ({
   setRasterOpacity: (id, opacity) =>
     set((s) => ({
       rasterLayers: s.rasterLayers.map((r) => (r.id === id ? { ...r, opacity } : r)),
+    })),
+  setRasterRampa: (id, rampaElegida) =>
+    set((s) => ({
+      rasterLayers: s.rasterLayers.map((r) => (r.id === id ? { ...r, rampaElegida } : r)),
+    })),
+  toggleRasterInvertida: (id) =>
+    set((s) => ({
+      rasterLayers: s.rasterLayers.map((r) =>
+        r.id === id ? { ...r, invertida: !r.invertida } : r
+      ),
+    })),
+  setRasterColorClase: (id, indice, color) =>
+    set((s) => ({
+      rasterLayers: s.rasterLayers.map((r) =>
+        r.id === id ? { ...r, coloresClase: { ...r.coloresClase, [indice]: color } } : r
+      ),
+    })),
+  setRasterEtiquetaClase: (id, indice, texto) =>
+    set((s) => ({
+      rasterLayers: s.rasterLayers.map((r) =>
+        r.id === id ? { ...r, etiquetasClase: { ...r.etiquetasClase, [indice]: texto } } : r
+      ),
+    })),
+  // Vuelve a los colores y nombres con los que nació la capa en el catálogo.
+  resetRasterColores: (id) =>
+    set((s) => ({
+      rasterLayers: s.rasterLayers.map((r) =>
+        r.id === id
+          ? {
+              ...r, rampaElegida: undefined, invertida: false,
+              coloresClase: undefined, etiquetasClase: undefined,
+            }
+          : r
+      ),
     })),
   hideAllRasters: () =>
     set((s) => ({

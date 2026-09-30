@@ -17,7 +17,7 @@ import maplibregl from 'maplibre-gl';
 import jsPDF from 'jspdf';
 import proj4 from 'proj4';
 import { useGeoStore, type GeoLayer, type RasterLayer } from '../../store/useGeoStore';
-import { sincronizarRasters, idCapaRaster } from '../../services/rasterMapa';
+import { sincronizarRasters, idCapaRaster, coloresDe, textoClase } from '../../services/rasterMapa';
 import {
   type Prim, type Contexto,
   ESTILOS_NORTE, ESTILOS_ESCALA, CAMPOS_DINAMICOS,
@@ -97,9 +97,11 @@ const zoomPara = (mpp: number, lat: number) =>
 interface Convencion {
   clave: string;
   texto: string;
-  /** Un color para un vector; la rampa completa para un ráster. */
+  /** Un color para un vector o una clase; la rampa completa para un continuo. */
   colores: string[];
   forma: 'punto' | 'linea' | 'area' | 'rampa';
+  /** Nombre de un ráster de clases: va sin símbolo, con sus clases debajo. */
+  encabezado?: boolean;
 }
 
 function tipoGeom(l: GeoLayer): 'point' | 'line' | 'polygon' {
@@ -370,12 +372,36 @@ export default function PlanoLayout() {
       colores: [colorCapa(c)],
       forma: ({ point: 'punto', line: 'linea', polygon: 'area' } as const)[tipoGeom(c)],
     })),
-    ...visiblesRaster.map((r) => ({
-      clave: `r${r.id}`,
-      texto: r.nombre,
-      colores: r.leyenda ? r.leyenda.map((c) => c.color) : (r.muestras ?? ['#888888']),
-      forma: 'rampa' as const,
-    })),
+    ...visiblesRaster.flatMap((r): Convencion[] => {
+      const colores = coloresDe(r);
+
+      if (r.tipo === 'continuo') {
+        const n = (v: number) => v.toLocaleString('es-CO', { maximumFractionDigits: 1 });
+        return [{
+          clave: `r${r.id}`,
+          texto: `${r.nombre} (${n(r.minimo)} – ${n(r.maximo)} ${r.unidad})`,
+          colores,
+          forma: 'rampa',
+        }];
+      }
+
+      // Una sola clase no necesita encabezado: el nombre de la capa basta.
+      if (r.clases.length === 1) {
+        return [{
+          clave: `r${r.id}`, texto: r.nombre, colores: [colores[0]], forma: 'area',
+        }];
+      }
+
+      return [
+        { clave: `r${r.id}`, texto: r.nombre, colores: [], forma: 'area', encabezado: true },
+        ...r.clases.map((c, i): Convencion => ({
+          clave: `r${r.id}-${c.indice}`,
+          texto: textoClase(r, c.indice),
+          colores: [colores[i]],
+          forma: 'area',
+        })),
+      ];
+    }),
   ], [visibles, visiblesRaster]);
 
   const elMapa = elementos.find((e) => e.id === 'mapa')!;
@@ -464,18 +490,27 @@ export default function PlanoLayout() {
     });
 
     // Un ráster encendido después de abrir el compositor todavía no existe en
-    // este mapa, así que aquí se crea igual que en el principal.
-    sincronizarRasters(prev, rasterLayers);
-    rasterLayers.forEach((r) => {
-      const id = idCapaRaster(r.id);
-      if (prev.getLayer(id)) {
-        prev.setLayoutProperty(id, 'visibility', r.visible ? 'visible' : 'none');
-        prev.setPaintProperty(id, 'raster-opacity', r.opacity);
-      }
-    });
+    // este mapa, así que aquí se crea igual que en el principal. Colorear la
+    // imagen toma un momento, por eso el refresco espera a que termine.
+    let vigente = true;
+    sincronizarRasters(prev, rasterLayers)
+      .then(() => {
+        if (!vigente) return;
+        rasterLayers.forEach((r) => {
+          const id = idCapaRaster(r.id);
+          if (prev.getLayer(id)) {
+            prev.setLayoutProperty(id, 'visibility', r.visible ? 'visible' : 'none');
+            prev.setPaintProperty(id, 'raster-opacity', r.opacity);
+          }
+        });
+        refrescar();
+      })
+      .catch(() => {
+        // El error ya se le informó al usuario desde el mapa principal.
+      });
 
     const t = setTimeout(refrescar, 220);
-    return () => clearTimeout(t);
+    return () => { vigente = false; clearTimeout(t); };
   }, [abierto, layers, rasterLayers, refrescar]);
 
   /* ------------------------------------------------------- arrastrar */
@@ -557,12 +592,15 @@ export default function PlanoLayout() {
     e.target.value = '';
   };
 
-  const acomodar = () => { setElementos(plantilla(dim, horizontal, visibles.length)); setSelId(null); };
+  // El molde se rehace con el número de filas de la leyenda, no con el de
+  // capas: un ráster de clases ocupa una fila por clase, y si no se cuentan
+  // todas, la flecha de norte y la escala terminan encima de las convenciones.
+  const acomodar = () => { setElementos(plantilla(dim, horizontal, convenciones.length)); setSelId(null); };
 
   useEffect(() => {
-    setElementos(plantilla(dim, horizontal, visibles.length));
+    setElementos(plantilla(dim, horizontal, convenciones.length));
     setSelId(null);
-  }, [dim.ancho, dim.alto, horizontal, visibles.length]);
+  }, [dim.ancho, dim.alto, horizontal, convenciones.length]);
 
   const insertarCampo = (token: string) => {
     if (!selId) return;
@@ -760,6 +798,16 @@ export default function PlanoLayout() {
               const c = Math.floor(i / filas), fila = i % filas;
               const cx = el.x + c * anchoCol, cy = el.y + 4.5 + fila * esp;
               pdf.setDrawColor(60, 60, 60); pdf.setLineWidth(0.2);
+
+              if (conv.encabezado) {
+                // Solo el nombre, en negrita y sin sangrar; las clases van
+                // debajo con su cuadro de color.
+                pdf.setFont('helvetica', 'bold');
+                const enc = pdf.splitTextToSize(conv.texto, anchoCol) as string[];
+                pdf.text(enc[0], cx, cy);
+                conFuente(el);
+                return;
+              }
 
               if (conv.forma === 'rampa') {
                 // jsPDF no dibuja degradados: la rampa va como una tira de
@@ -1101,9 +1149,7 @@ export default function PlanoLayout() {
                 </button>
                 <span className="pl-punto" style={{
                   borderRadius: 2, height: 8,
-                  background: `linear-gradient(135deg, ${
-                    (r.leyenda ? r.leyenda.map((c) => c.color) : r.muestras ?? ['#888']).join(', ')
-                  })`,
+                  background: `linear-gradient(135deg, ${coloresDe(r).join(', ')})`,
                 }} />
                 <span className="pl-fila-nombre">{r.nombre}</span>
                 <button type="button" className="pl-zoom" title="Encuadrar este ráster"
@@ -1245,16 +1291,21 @@ export default function PlanoLayout() {
                             position: 'absolute', left: cc * anchoCol, top: (1 + fila * esp) * vista,
                             width: anchoCol, display: 'flex', alignItems: 'center', gap: 1.6 * vista,
                           }}>
-                            <span style={{
-                              flexShrink: 0, width: 4.5 * vista,
-                              height: c.forma === 'linea' ? 0.8 * vista : 2.8 * vista,
-                              background: relleno,
-                              borderRadius: c.forma === 'punto' ? '50%' : 0,
-                              border: c.forma === 'linea' ? 'none' : '0.5px solid rgba(0,0,0,.45)',
-                            }} />
+                            {/* El encabezado de un ráster de clases no lleva símbolo:
+                                el símbolo lo llevan sus clases, sangradas debajo. */}
+                            {!c.encabezado && (
+                              <span style={{
+                                flexShrink: 0, width: 4.5 * vista,
+                                height: c.forma === 'linea' ? 0.8 * vista : 2.8 * vista,
+                                background: relleno,
+                                borderRadius: c.forma === 'punto' ? '50%' : 0,
+                                border: c.forma === 'linea' ? 'none' : '0.5px solid rgba(0,0,0,.45)',
+                              }} />
+                            )}
                             <span style={{
                               fontSize: (el.tamano ?? 6.5) * PT * vista, whiteSpace: 'nowrap',
                               overflow: 'hidden', textOverflow: 'ellipsis',
+                              fontWeight: c.encabezado ? 700 : undefined,
                             }}>{c.texto}</span>
                           </div>
                         );

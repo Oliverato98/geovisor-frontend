@@ -61,9 +61,16 @@ export default function MapView() {
   }, [setMap]);
 
   // ── Sincronizar capas ráster ──────────────────────────────────────────────
+  // El coloreado ocurre en el navegador y es asíncrono, así que si una imagen
+  // no llega hay que decirlo en vez de dejar la capa encendida y vacía.
   const syncRasters = useCallback((map: maplibregl.Map) => {
-    sincronizarRasters(map, rasterLayers);
-  }, [rasterLayers]);
+    sincronizarRasters(map, rasterLayers).catch((e) => {
+      addNotification({
+        type: 'error',
+        message: e?.message ?? 'No se pudo dibujar una capa ráster',
+      });
+    });
+  }, [rasterLayers, addNotification]);
 
   useEffect(() => {
     const map = mapRef.current;

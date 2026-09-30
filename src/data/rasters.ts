@@ -2,18 +2,51 @@
  * data/rasters.ts
  * Catálogo de las capas ráster del estudio de amenaza por remoción en masa.
  *
- * Cada grid de ArcInfo se reproyectó a WGS84 y se exportó como PNG con los
- * nodata transparentes, así que MapLibre puede anclarlo por sus cuatro esquinas
- * sin deformarlo. Las imágenes viven en `public/rasters/`.
+ * Cada PNG guarda un byte por celda —el índice de clase, o el valor
+ * normalizado en los continuos— y el canal alfa marca los nodata. El color no
+ * está dentro de la imagen: lo aplica el navegador, así que las rampas y los
+ * colores de clase se pueden cambiar sin volver a generar nada.
+ *
+ * Las imágenes viven en `public/rasters/`.
  */
 
-/** Una entrada de leyenda para un ráster de clases discretas. */
-export interface ClaseRaster {
-  color: string;
-  texto: string;
+/** Separación entre clases dentro del byte del PNG. Ver `PASO_CLASE` en el
+ *  generador: los valores van de 25 en 25 para que un corrimiento de una
+ *  unidad al decodificar la imagen no convierta una clase en su vecina. */
+export const PASO_CLASE = 25;
+
+/** Una rampa de color con nueve paradas, de mínimo a máximo. */
+export interface Rampa {
+  id: string;
+  nombre: string;
+  paradas: string[];
 }
 
-export interface RasterInfo {
+export const RAMPAS: Rampa[] = [
+  { id: "elevacion", nombre: "Elevación", paradas: ["#333399", "#0888ee", "#01cc66", "#81e680", "#fefe98", "#beac76", "#815e56", "#c1b0ac", "#ffffff"] },
+  { id: "calor", nombre: "Amarillo a rojo", paradas: ["#ffffcc", "#ffeda0", "#fed976", "#feb24c", "#fd8c3c", "#fc4d2a", "#e2191c", "#bb0026", "#800026"] },
+  { id: "azules", nombre: "Azules", paradas: ["#f7fbff", "#deebf7", "#c6dbef", "#9dcae1", "#6aaed6", "#4191c6", "#2070b4", "#08509b", "#08306b"] },
+  { id: "azules_inv", nombre: "Azules invertido", paradas: ["#08306b", "#08519c", "#2171b5", "#4292c6", "#6caed6", "#9fcae1", "#c7dbef", "#dfebf7", "#f7fbff"] },
+  { id: "divergente", nombre: "Cóncavo y convexo", paradas: ["#053061", "#2a71b2", "#6bacd1", "#c2ddec", "#f7f6f6", "#fbccb4", "#e48066", "#ba2832", "#67001f"] },
+  { id: "espectral", nombre: "Espectral", paradas: ["#5e4fa2", "#3f97b7", "#89d0a4", "#d8ef9b", "#fffebe", "#fed27f", "#f88c51", "#dc484c", "#9e0142"] },
+  { id: "verde_rojo", nombre: "Verde a rojo", paradas: ["#006837", "#2da155", "#87cb67", "#cdea83", "#fffebe", "#fed27f", "#f88c51", "#dd3d2d", "#a50026"] },
+  { id: "viridis", nombre: "Viridis", paradas: ["#440154", "#472d7b", "#3b528b", "#2c728e", "#21918c", "#28ae80", "#5ec962", "#addc30", "#fde725"] },
+  { id: "magma", nombre: "Magma", paradas: ["#000004", "#1d1147", "#51127c", "#832681", "#b73779", "#e75263", "#fc8961", "#fec488", "#fcfdbf"] },
+  { id: "grises", nombre: "Grises", paradas: ["#000000", "#202020", "#404040", "#606060", "#808080", "#a0a0a0", "#c0c0c0", "#e0e0e0", "#ffffff"] },
+];
+
+export const rampaPorId = (id: string): Rampa =>
+  RAMPAS.find((r) => r.id === id) ?? RAMPAS[0];
+
+/** Una clase de un ráster discreto. */
+export interface ClaseRaster {
+  /** Número de clase. En el PNG se guarda como `indice * PASO_CLASE`. */
+  indice: number;
+  texto: string;
+  color: string;
+}
+
+interface Comun {
   id: string;
   nombre: string;
   grupo: string;
@@ -24,15 +57,24 @@ export interface RasterInfo {
   alto: number;
   /** Esquinas en sentido horario desde la superior izquierda, como las pide MapLibre. */
   esquinas: [[number, number], [number, number], [number, number], [number, number]];
-  /** Presente solo en los ráster de clases. */
-  leyenda?: ClaseRaster[];
-  /** Los siguientes solo en los ráster continuos. */
-  muestras?: string[];
-  unidad?: string;
-  minimo?: number;
-  maximo?: number;
-  logaritmico?: boolean;
 }
+
+export interface RasterClases extends Comun {
+  tipo: 'clases';
+  clases: ClaseRaster[];
+}
+
+export interface RasterContinuo extends Comun {
+  tipo: 'continuo';
+  /** Id de la rampa con la que nace la capa. */
+  rampa: string;
+  unidad: string;
+  minimo: number;
+  maximo: number;
+  logaritmico: boolean;
+}
+
+export type RasterInfo = RasterClases | RasterContinuo;
 
 export const RASTERS: RasterInfo[] = [
   {
@@ -48,9 +90,9 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    muestras: ["#333399", "#0888ee", "#01cc66", "#81e680", "#fefe98", "#beac76", "#815e56", "#c1b0ac", "#ffffff"],
-    unidad: "m s. n. m.",
-    minimo: 1046.76, maximo: 3801.74, logaritmico: false,
+    tipo: 'continuo',
+    rampa: "elevacion", unidad: "m s. n. m.",
+    minimo: 1046.8, maximo: 3801.7, logaritmico: false,
   },
   {
     id: "dem_calarca",
@@ -65,9 +107,9 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    muestras: ["#333399", "#0888ee", "#01cc66", "#81e680", "#fefe98", "#beac76", "#815e56", "#c1b0ac", "#ffffff"],
-    unidad: "m s. n. m.",
-    minimo: 1099.79, maximo: 3299.68, logaritmico: false,
+    tipo: 'continuo',
+    rampa: "elevacion", unidad: "m s. n. m.",
+    minimo: 1099.8, maximo: 3299.7, logaritmico: false,
   },
   {
     id: "hidrology",
@@ -82,9 +124,9 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    muestras: ["#333399", "#0888ee", "#01cc66", "#81e680", "#fefe98", "#beac76", "#815e56", "#c1b0ac", "#ffffff"],
-    unidad: "m s. n. m.",
-    minimo: 1099.86, maximo: 3299.68, logaritmico: false,
+    tipo: 'continuo',
+    rampa: "elevacion", unidad: "m s. n. m.",
+    minimo: 1099.9, maximo: 3299.7, logaritmico: false,
   },
   {
     id: "pendiente",
@@ -99,8 +141,8 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    muestras: ["#ffffcc", "#ffeda0", "#fed976", "#feb24c", "#fd8c3c", "#fc4d2a", "#e2191c", "#bb0026", "#800026"],
-    unidad: "%",
+    tipo: 'continuo',
+    rampa: "calor", unidad: "%",
     minimo: 0.4, maximo: 75.9, logaritmico: false,
   },
   {
@@ -116,12 +158,13 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    leyenda: [
-      { color: "#1a9850", texto: "Clase 1 · menor" },
-      { color: "#a6d96a", texto: "Clase 2" },
-      { color: "#fee08b", texto: "Clase 3" },
-      { color: "#f46d43", texto: "Clase 4" },
-      { color: "#d73027", texto: "Clase 5 · mayor" },
+    tipo: 'clases',
+    clases: [
+      { indice: 1, texto: "Clase 1 · menor", color: "#1a9850" },
+      { indice: 2, texto: "Clase 2", color: "#a6d96a" },
+      { indice: 3, texto: "Clase 3", color: "#fee08b" },
+      { indice: 4, texto: "Clase 4", color: "#f46d43" },
+      { indice: 5, texto: "Clase 5 · mayor", color: "#d73027" },
     ],
   },
   {
@@ -137,8 +180,8 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    muestras: ["#053061", "#2a71b2", "#6bacd1", "#c2ddec", "#f7f6f6", "#fbccb4", "#e48066", "#ba2832", "#67001f"],
-    unidad: "1/100 m",
+    tipo: 'continuo',
+    rampa: "divergente", unidad: "1/100 m",
     minimo: -0.45, maximo: 0.45, logaritmico: false,
   },
   {
@@ -154,10 +197,11 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    leyenda: [
-      { color: "#1a9850", texto: "Clase 1 · menor" },
-      { color: "#fee08b", texto: "Clase 2" },
-      { color: "#d73027", texto: "Clase 3 · mayor" },
+    tipo: 'clases',
+    clases: [
+      { indice: 1, texto: "Clase 1 · menor", color: "#1a9850" },
+      { indice: 2, texto: "Clase 2", color: "#fee08b" },
+      { indice: 3, texto: "Clase 3 · mayor", color: "#d73027" },
     ],
   },
   {
@@ -173,9 +217,9 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    muestras: ["#f7fbff", "#deebf7", "#c6dbef", "#9dcae1", "#6aaed6", "#4191c6", "#2070b4", "#08509b", "#08306b"],
-    unidad: "celdas",
-    minimo: 0.68, maximo: 4.7, logaritmico: true,
+    tipo: 'continuo',
+    rampa: "azules", unidad: "celdas",
+    minimo: 3.8, maximo: 50084.7, logaritmico: true,
   },
   {
     id: "flow_d",
@@ -190,15 +234,16 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    leyenda: [
-      { color: "#e41a1c", texto: "Este" },
-      { color: "#ff7f00", texto: "Sureste" },
-      { color: "#ffff33", texto: "Sur" },
-      { color: "#4daf4a", texto: "Suroeste" },
-      { color: "#377eb8", texto: "Oeste" },
-      { color: "#984ea3", texto: "Noroeste" },
-      { color: "#a65628", texto: "Norte" },
-      { color: "#f781bf", texto: "Noreste" },
+    tipo: 'clases',
+    clases: [
+      { indice: 1, texto: "Este", color: "#e41a1c" },
+      { indice: 2, texto: "Sureste", color: "#ff7f00" },
+      { indice: 3, texto: "Sur", color: "#ffff33" },
+      { indice: 4, texto: "Suroeste", color: "#4daf4a" },
+      { indice: 5, texto: "Oeste", color: "#377eb8" },
+      { indice: 6, texto: "Noroeste", color: "#984ea3" },
+      { indice: 7, texto: "Norte", color: "#a65628" },
+      { indice: 8, texto: "Noreste", color: "#f781bf" },
     ],
   },
   {
@@ -214,9 +259,9 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    muestras: ["#08306b", "#08519c", "#2171b5", "#4292c6", "#6caed6", "#9fcae1", "#c7dbef", "#dfebf7", "#f7fbff"],
-    unidad: "m",
-    minimo: 0.0, maximo: 11036.79, logaritmico: false,
+    tipo: 'continuo',
+    rampa: "azules_inv", unidad: "m",
+    minimo: 0.0, maximo: 11036.8, logaritmico: false,
   },
   {
     id: "distance_rec",
@@ -231,12 +276,13 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    leyenda: [
-      { color: "#1a9850", texto: "Clase 1 · menor" },
-      { color: "#a6d96a", texto: "Clase 2" },
-      { color: "#fee08b", texto: "Clase 3" },
-      { color: "#f46d43", texto: "Clase 4" },
-      { color: "#d73027", texto: "Clase 5 · mayor" },
+    tipo: 'clases',
+    clases: [
+      { indice: 1, texto: "Clase 1 · menor", color: "#1a9850" },
+      { indice: 2, texto: "Clase 2", color: "#a6d96a" },
+      { indice: 3, texto: "Clase 3", color: "#fee08b" },
+      { indice: 4, texto: "Clase 4", color: "#f46d43" },
+      { indice: 5, texto: "Clase 5 · mayor", color: "#d73027" },
     ],
   },
   {
@@ -252,8 +298,9 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    leyenda: [
-      { color: "#1d70b8", texto: "Cauce" },
+    tipo: 'clases',
+    clases: [
+      { indice: 1, texto: "Cauce", color: "#1d70b8" },
     ],
   },
   {
@@ -269,10 +316,11 @@ export const RASTERS: RasterInfo[] = [
       [-75.55573574, 4.33723003],
       [-75.80492106, 4.33723003],
     ],
-    leyenda: [
-      { color: "#1a9850", texto: "Clase 1 · menor" },
-      { color: "#fee08b", texto: "Clase 2" },
-      { color: "#d73027", texto: "Clase 3 · mayor" },
+    tipo: 'clases',
+    clases: [
+      { indice: 1, texto: "Clase 1 · menor", color: "#1a9850" },
+      { indice: 2, texto: "Clase 2", color: "#fee08b" },
+      { indice: 3, texto: "Clase 3 · mayor", color: "#d73027" },
     ],
   },
 ];

@@ -7,10 +7,11 @@ import { useDropzone } from 'react-dropzone';
 import {
   Layers, Upload, Activity, Eye, EyeOff, Trash2,
   ZoomIn, Download, ChevronDown, ChevronRight,
-  MapPin, Minus, Square, AlertTriangle, Palette, Lock, Mountain
+  MapPin, Minus, Square, AlertTriangle, Palette, Lock, Mountain, RotateCcw
 } from 'lucide-react';
 import { useGeoStore, type RasterLayer } from '../../store/useGeoStore';
-import { GRUPOS_RASTER } from '../../data/rasters';
+import { GRUPOS_RASTER, RAMPAS } from '../../data/rasters';
+import { coloresDe, textoClase } from '../../services/rasterMapa';
 import { layersApi, uploadApi, analysisApi } from '../../services/api';
 
 // ── Panel principal ───────────────────────────────────────────────────────────
@@ -246,7 +247,10 @@ function LayersTab() {
  * solo encender, graduar y leer la leyenda.
  */
 function RasterSection() {
-  const { rasterLayers, toggleRasterVisibility, setRasterOpacity, hideAllRasters } = useGeoStore();
+  const {
+    rasterLayers, toggleRasterVisibility, setRasterOpacity, hideAllRasters,
+    setRasterRampa, toggleRasterInvertida, setRasterColorClase, resetRasterColores,
+  } = useGeoStore();
   const [abierta, setAbierta] = useState<string | null>(null);
   const [plegada, setPlegada] = useState(false);
 
@@ -362,16 +366,28 @@ function RasterSection() {
                       onChange={(e) => setRasterOpacity(r.id, parseFloat(e.target.value))}
                     />
 
-                    <button
-                      className="geo-btn"
-                      style={{ width: '100%', justifyContent: 'center', marginTop: 9 }}
-                      onClick={() => (window as any).__zoomToBBox?.([
-                        r.esquinas[0][0], r.esquinas[2][1],
-                        r.esquinas[1][0], r.esquinas[0][1],
-                      ])}
-                    >
-                      <ZoomIn size={11} /> Encuadrar
-                    </button>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 9 }}>
+                      <button
+                        className="geo-btn"
+                        style={{ flex: 1, justifyContent: 'center' }}
+                        onClick={() => (window as any).__zoomToBBox?.([
+                          r.esquinas[0][0], r.esquinas[2][1],
+                          r.esquinas[1][0], r.esquinas[0][1],
+                        ])}
+                      >
+                        <ZoomIn size={11} /> Encuadrar
+                      </button>
+                      {(r.rampaElegida || r.invertida || r.coloresClase || r.etiquetasClase) && (
+                        <button
+                          className="geo-btn"
+                          title="Volver a los colores originales"
+                          style={{ justifyContent: 'center' }}
+                          onClick={() => resetRasterColores(r.id)}
+                        >
+                          <RotateCcw size={11} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -385,9 +401,7 @@ function RasterSection() {
 
 /** Cuadrito de color junto al nombre: la rampa completa en miniatura. */
 function MuestraRaster({ raster }: { raster: RasterLayer }) {
-  const colores = raster.leyenda
-    ? raster.leyenda.map((c) => c.color)
-    : raster.muestras ?? ['#666'];
+  const colores = coloresDe(raster);
 
   return (
     <span style={{
@@ -401,33 +415,75 @@ function MuestraRaster({ raster }: { raster: RasterLayer }) {
   );
 }
 
-/** Leyenda: lista de clases si el ráster es discreto, barra continua si no. */
+/**
+ * Leyenda y control de color. Un ráster de clases lista una fila por clase,
+ * con su cuadro de color editable; uno continuo muestra la barra de rampa con
+ * sus extremos y deja elegir entre las rampas disponibles.
+ */
 function LeyendaRaster({ raster }: { raster: RasterLayer }) {
-  if (raster.leyenda) {
+  const {
+    setRasterRampa, toggleRasterInvertida, setRasterColorClase, setRasterEtiquetaClase,
+  } = useGeoStore();
+  const colores = coloresDe(raster);
+
+  if (raster.tipo === 'clases') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {raster.leyenda.map((c) => (
-          <div key={c.texto} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <span style={{
-              width: 14, height: 10, borderRadius: 2, background: c.color,
-              border: '1px solid var(--geo-border-hi)', flexShrink: 0,
-            }} />
-            <span style={{ fontSize: 11, color: '#c2c7d4' }}>{c.texto}</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {/* Los números de clase vienen del grid; qué significa cada uno solo
+            lo sabe quien hizo la reclasificación, así que el nombre se
+            escribe aquí y viaja a la leyenda del plano y al PDF. */}
+        {raster.clases.map((c, i) => (
+          <div key={c.indice} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* El cuadro de color es el propio selector: el input nativo se
+                esconde detrás para no romper la estética del panel. */}
+            <span
+              title="Cambiar el color de esta clase"
+              style={{
+                position: 'relative', width: 16, height: 12, borderRadius: 2,
+                background: colores[i], border: '1px solid var(--geo-border-hi)',
+                flexShrink: 0, display: 'inline-block',
+              }}
+            >
+              <input
+                type="color"
+                value={colores[i]}
+                onChange={(e) => setRasterColorClase(raster.id, c.indice, e.target.value)}
+                style={{
+                  position: 'absolute', inset: 0, width: '100%', height: '100%',
+                  opacity: 0, cursor: 'pointer', padding: 0, border: 'none',
+                }}
+              />
+            </span>
+            <input
+              className="geo-input"
+              title="Nombre de esta clase en la leyenda"
+              value={textoClase(raster, c.indice)}
+              onChange={(e) => setRasterEtiquetaClase(raster.id, c.indice, e.target.value)}
+              style={{
+                flex: 1, minWidth: 0, fontSize: 11, padding: '3px 6px',
+                background: 'transparent', border: '1px solid transparent',
+                color: '#c2c7d4',
+                // Es un rótulo de leyenda, no un dato: va en la tipografía
+                // del panel, no en la monoespaciada de los campos.
+                fontFamily: 'inherit',
+              }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--geo-border-hi)'; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = 'transparent'; }}
+            />
           </div>
         ))}
       </div>
     );
   }
 
-  const muestras = raster.muestras ?? [];
-  const numero = (v?: number) =>
-    v == null ? '' : v.toLocaleString('es-CO', { maximumFractionDigits: 1 });
+  const numero = (v: number) =>
+    v.toLocaleString('es-CO', { maximumFractionDigits: 1 });
 
   return (
     <div>
       <div style={{
-        height: 9, borderRadius: 3, border: '1px solid var(--geo-border-hi)',
-        background: `linear-gradient(to right, ${muestras.join(', ')})`,
+        height: 10, borderRadius: 3, border: '1px solid var(--geo-border-hi)',
+        background: `linear-gradient(to right, ${colores.join(', ')})`,
       }} />
       {/* Los extremos de la rampa son el dato, no una decoración: van en un
           tono aclarado del gris del panel para que se lean de verdad. */}
@@ -438,6 +494,27 @@ function LeyendaRaster({ raster }: { raster: RasterLayer }) {
         <span>{numero(raster.minimo)}</span>
         <span>{raster.unidad}{raster.logaritmico ? ' · log' : ''}</span>
         <span>{numero(raster.maximo)}</span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 9 }}>
+        <select
+          className="geo-input"
+          style={{ flex: 1, fontSize: 11, padding: '5px 6px' }}
+          value={raster.rampaElegida ?? raster.rampa}
+          onChange={(e) => setRasterRampa(raster.id, e.target.value)}
+        >
+          {RAMPAS.map((r) => (
+            <option key={r.id} value={r.id}>{r.nombre}</option>
+          ))}
+        </select>
+        <button
+          className={`geo-btn${raster.invertida ? ' active' : ''}`}
+          title="Invertir la rampa"
+          style={{ padding: '5px 8px' }}
+          onClick={() => toggleRasterInvertida(raster.id)}
+        >
+          <Palette size={11} />
+        </button>
       </div>
     </div>
   );
