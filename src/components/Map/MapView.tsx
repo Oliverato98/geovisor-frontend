@@ -596,8 +596,8 @@ export default function MapView() {
       }
     };
 
+    // El efecto ya retornó si no hay herramienta activa, así que aquí siempre hay una.
     const handleDblClick = (e: maplibregl.MapMouseEvent) => {
-      if (activeTool === 'none') return;
       e.preventDefault();
       measurePointsRef.current = [];
       drawingRef.current = [];
