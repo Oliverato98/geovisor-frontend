@@ -306,6 +306,52 @@ export default function MapView() {
     }
   }, [analysisLayers]);
 
+  /**
+   * Pinta los vértices de la figura en curso, numerados, para que se vea
+   * exactamente dónde va cada clic.
+   */
+  const pintarVertices = useCallback((map: maplibregl.Map, pts: [number, number][]) => {
+    const datos = {
+      type: 'FeatureCollection' as const,
+      features: pts.map((p, i) => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: p },
+        properties: { n: String(i + 1) },
+      })),
+    };
+
+    if (!map.getSource('vertices')) {
+      map.addSource('vertices', { type: 'geojson', data: datos });
+      map.addLayer({
+        id: 'vertices-punto', type: 'circle', source: 'vertices',
+        paint: {
+          'circle-radius': 7, 'circle-color': '#ffffff',
+          'circle-stroke-width': 2.5, 'circle-stroke-color': '#2dd4a0',
+        },
+      });
+      map.addLayer({
+        id: 'vertices-numero', type: 'symbol', source: 'vertices',
+        layout: {
+          'text-field': ['get', 'n'], 'text-size': 11,
+          'text-allow-overlap': true, 'text-ignore-placement': true,
+        },
+        paint: { 'text-color': '#0f1117' },
+      });
+    } else {
+      (map.getSource('vertices') as maplibregl.GeoJSONSource).setData(datos);
+    }
+  }, []);
+
+  /** Borra la figura en curso y sus vértices. */
+  const limpiarDibujo = useCallback((map: maplibregl.Map) => {
+    for (const id of ['vertices-numero', 'vertices-punto', 'dibujo-linea', 'dibujo-relleno', 'dibujo-borde']) {
+      if (map.getLayer(id)) map.removeLayer(id);
+    }
+    for (const id of ['vertices', 'dibujo']) {
+      if (map.getSource(id)) map.removeSource(id);
+    }
+  }, []);
+
   useEffect(() => {
     activeToolRef.current = activeTool;
     // Al tomar una herramienta se cierra la ficha de atributos abierta
@@ -313,7 +359,15 @@ export default function MapView() {
       popupRef.current?.remove();
       popupRef.current = null;
     }
-  }, [activeTool]);
+    // Cada herramienta empieza con el lienzo limpio
+    const map = mapRef.current;
+    if (map) {
+      measurePointsRef.current = [];
+      drawingRef.current = [];
+      limpiarDibujo(map);
+      setMeasureResult(null);
+    }
+  }, [activeTool, limpiarDibujo, setMeasureResult]);
 
   // ── Popup de atributos ────────────────────────────────────────────────────
   const handleFeatureClick = useCallback((
@@ -452,16 +506,104 @@ export default function MapView() {
             (map.getSource(src) as maplibregl.GeoJSONSource).setData(polygon);
           }
         }
+        pintarVertices(map, pts);
+      }
+
+      // ── Dibujar punto ──────────────────────────────────────────────────
+      if (activeTool === 'draw-point') {
+        drawingRef.current.push(coords);
+        pintarVertices(map, drawingRef.current);
+        const n = drawingRef.current.length;
+        setMeasureResult(`${n} punto${n === 1 ? '' : 's'}`);
+        addNotification({
+          type: 'success',
+          message: `Punto ${n}: ${coords[1].toFixed(5)}, ${coords[0].toFixed(5)}`,
+        });
+      }
+
+      // ── Dibujar línea ──────────────────────────────────────────────────
+      if (activeTool === 'draw-line') {
+        drawingRef.current.push(coords);
+        const pts = drawingRef.current;
+        pintarVertices(map, pts);
+
+        if (pts.length >= 2) {
+          const linea = turf.lineString(pts);
+          if (!map.getSource('dibujo')) {
+            map.addSource('dibujo', { type: 'geojson', data: linea });
+            map.addLayer({
+              id: 'dibujo-linea', type: 'line', source: 'dibujo',
+              layout: { 'line-cap': 'round', 'line-join': 'round' },
+              paint: { 'line-color': '#2dd4a0', 'line-width': 3 },
+            }, 'vertices-punto');
+          } else {
+            (map.getSource('dibujo') as maplibregl.GeoJSONSource).setData(linea);
+          }
+          const km = turf.length(linea, { units: 'kilometers' });
+          setMeasureResult(
+            `Vértice ${pts.length} · ${km < 1 ? `${(km * 1000).toFixed(0)} m` : `${km.toFixed(3)} km`}`
+          );
+        } else {
+          setMeasureResult('Vértice 1 · haz clic para el siguiente');
+        }
+      }
+
+      // ── Dibujar polígono ───────────────────────────────────────────────
+      if (activeTool === 'draw-polygon') {
+        drawingRef.current.push(coords);
+        const pts = drawingRef.current;
+        pintarVertices(map, pts);
+
+        if (pts.length >= 3) {
+          const poligono = turf.polygon([[...pts, pts[0]]]);
+          if (!map.getSource('dibujo')) {
+            map.addSource('dibujo', { type: 'geojson', data: poligono });
+            map.addLayer({
+              id: 'dibujo-relleno', type: 'fill', source: 'dibujo',
+              paint: { 'fill-color': '#2dd4a0', 'fill-opacity': 0.2 },
+            }, 'vertices-punto');
+            map.addLayer({
+              id: 'dibujo-borde', type: 'line', source: 'dibujo',
+              paint: { 'line-color': '#2dd4a0', 'line-width': 2.5 },
+            }, 'vertices-punto');
+          } else {
+            (map.getSource('dibujo') as maplibregl.GeoJSONSource).setData(poligono);
+          }
+          const ha = turf.area(poligono) / 10000;
+          setMeasureResult(
+            `Vértice ${pts.length} · ${ha < 1 ? `${(ha * 10000).toFixed(0)} m²` : `${ha.toFixed(2)} ha`}`
+          );
+        } else {
+          // Con dos vértices aún no hay superficie: se muestra el avance
+          if (pts.length === 2) {
+            const linea = turf.lineString(pts);
+            if (!map.getSource('dibujo')) {
+              map.addSource('dibujo', { type: 'geojson', data: linea });
+              map.addLayer({
+                id: 'dibujo-linea', type: 'line', source: 'dibujo',
+                paint: { 'line-color': '#2dd4a0', 'line-width': 2.5, 'line-dasharray': [2, 1] },
+              }, 'vertices-punto');
+            } else {
+              (map.getSource('dibujo') as maplibregl.GeoJSONSource).setData(linea);
+            }
+          }
+          setMeasureResult(
+            pts.length === 1
+              ? 'Vértice 1 · haz clic para el vértice 2'
+              : 'Vértice 2 · un clic más cierra el polígono'
+          );
+        }
       }
     };
 
     const handleDblClick = (e: maplibregl.MapMouseEvent) => {
+      if (activeTool === 'none') return;
       e.preventDefault();
-      if (activeTool === 'measure-distance' || activeTool === 'measure-area') {
-        measurePointsRef.current = [];
-        drawingRef.current = [];
-        addNotification({ type: 'info', message: 'Medición reiniciada. Haz clic para comenzar de nuevo.' });
-      }
+      measurePointsRef.current = [];
+      drawingRef.current = [];
+      limpiarDibujo(map);
+      setMeasureResult(null);
+      addNotification({ type: 'info', message: 'Listo. Haz clic para empezar de nuevo.' });
     };
 
     map.on('click', handleClick);
@@ -471,7 +613,7 @@ export default function MapView() {
       map.off('click', handleClick);
       map.off('dblclick', handleDblClick);
     };
-  }, [activeTool, setMeasureResult, addNotification]);
+  }, [activeTool, setMeasureResult, addNotification, pintarVertices, limpiarDibujo]);
 
   // ── Zoom a capa ───────────────────────────────────────────────────────────
   useEffect(() => {
