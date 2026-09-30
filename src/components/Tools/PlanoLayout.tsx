@@ -786,14 +786,6 @@ export default function PlanoLayout() {
       const conFuente = (el: Elemento) => pdf.setFont('helvetica', el.negrita ? 'bold' : 'normal');
       const conColor = (el: Elemento) => { const [r, g, b] = hexARgb(el.color ?? '#111111'); pdf.setTextColor(r, g, b); };
 
-      /** Placa blanca bajo el norte y la escala, para que se lean sobre el mapa. */
-      const placa = (x: number, y: number, ancho: number, alto: number) => {
-        pdf.setFillColor(255, 255, 255);
-        pdf.setDrawColor(150, 150, 150);
-        pdf.setLineWidth(0.15);
-        pdf.rect(x - 1.2, y - 1.2, ancho + 2.4, alto + 2.4, 'FD');
-      };
-
       for (const el of elementos) {
         if (!el.visible) continue;
         const col = el.color ?? '#111111';
@@ -931,14 +923,12 @@ export default function PlanoLayout() {
             break;
           }
           case 'norte':
-            placa(el.x, el.y, el.alto * 0.6, el.alto * 1.15);
             for (const p of figuraNorte(el.estilo ?? 0, el.alto)) primAPdf(pdf, p, el.x, el.y, col);
             break;
 
           case 'escala': {
             const metros = metrosBarra(escala, el.largo);
             const largo = (metros * 1000) / escala;
-            placa(el.x, el.y, largo + 8, 9);
             for (const p of figuraEscala(el.estilo ?? 0, largo, metros, el.tamano ?? 6, fmt)) {
               primAPdf(pdf, p, el.x, el.y, col);
             }
@@ -1495,21 +1485,8 @@ export default function PlanoLayout() {
               const altoSvg = el.tipo === 'norte' ? el.alto * 1.15
                 : el.tipo === 'escala' ? 9 : el.alto + 2;
 
-              // El norte y la escala ahora viven sobre el mapa, y ahí un trazo
-              // negro sobre una capa oscura no se lee. Una placa blanca los
-              // despega del fondo; sobre el rótulo, que ya es blanco, no se nota.
-              const conPlaca = el.tipo === 'norte' || el.tipo === 'escala';
-
               return (
-                <div {...comun} style={{
-                  ...base, width: anchoSvg * vista, height: altoSvg * vista,
-                  ...(conPlaca ? {
-                    background: '#ffffff',
-                    border: '0.5px solid rgba(0,0,0,0.25)',
-                    padding: 1 * vista,
-                    boxSizing: 'content-box' as const,
-                  } : {}),
-                }}>
+                <div {...comun} style={{ ...base, width: anchoSvg * vista, height: altoSvg * vista }}>
                   <svg width={anchoSvg * vista} height={altoSvg * vista} style={{ overflow: 'visible' }}>
                     <g transform={el.tipo === 'norte' ? `translate(${(anchoSvg / 2) * vista},0)` : undefined}>
                       {prims.map((p, j) => primASvg(p, j, vista, col))}
