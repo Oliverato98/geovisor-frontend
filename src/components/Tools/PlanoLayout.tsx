@@ -61,7 +61,7 @@ const DPI = 200;
 const PT = 0.3528;
 
 type TipoElemento =
-  | 'mapa' | 'rotulo' | 'norte' | 'escala' | 'convenciones' | 'titulo' | 'texto' | 'datos'
+  | 'mapa' | 'rotulo' | 'norte' | 'escala' | 'convenciones' | 'titulo' | 'texto' | 'datos' | 'referencia'
   | 'linea' | 'flecha' | 'rect' | 'elipse' | 'imagen';
 
 interface Elemento {
@@ -272,7 +272,47 @@ function primAPdf(pdf: jsPDF, p: Prim, ox: number, oy: number, color: string) {
 
 /* --------------------------------------------------- plantilla inicial */
 
-function plantilla(dim: { ancho: number; alto: number }, horizontal: boolean, nCapas: number): Elemento[] {
+/**
+ * Los parámetros del sistema de coordenadas oficial de Colombia, en el orden
+ * y con los nombres con que los imprime ArcGIS, para que el plano se pueda
+ * cotejar contra la ficha de la capa sin traducir nada.
+ */
+const REFERENCIA_ESPACIAL: Array<[string, string]> = [
+  ['Name', 'MAGNA-SIRGAS 2018 Origen-Nacional'],
+  ['PCS', 'MAGNA-SIRGAS 2018 Origen-Nacional'],
+  ['GCS', 'MAGNA-SIRGAS 2018'],
+  ['Datum', 'Marco Geocéntrico Nacional de Referencia 2018'],
+  ['Projection', 'Transverse Mercator'],
+  ['Central Meridian', '-73,0000'],
+  ['Latitude of Origin', '4,0000'],
+  ['Longitude of Origin', '0,0000'],
+  ['Latitude of Center', '0,0000'],
+  ['Longitude of Center', '0,0000'],
+  ['Latitude of 1st', '0,0000'],
+  ['Longitude of 1st', '0,0000'],
+  ['Latitude of 2nd', '0,0000'],
+  ['Longitude of 2nd', '0,0000'],
+  ['False Easting', '5.000.000,0000'],
+  ['False Northing', '2.000.000,0000'],
+  ['Central Parallel', '0,0000'],
+  ['Standard Parallel', '0,0000'],
+  ['Standard Parallel 2', '0,0000'],
+  ['Scale Factor', '0,9992'],
+  ['Azimuth', '0,0000'],
+  ['Map Units', 'Meter'],
+];
+
+/**
+ * Arma la distribución del rótulo.
+ *
+ * `nCapas` son las filas de las convenciones y `nElaboro` los nombres de quien
+ * elaboró: los dos bloques crecen con su contenido, y si no se cuentan, lo que
+ * va debajo termina encima de ellos.
+ */
+function plantilla(
+  dim: { ancho: number; alto: number }, horizontal: boolean,
+  nCapas: number, nElaboro = 1
+): Elemento[] {
   const w = horizontal ? dim.alto : dim.ancho;
   const h = horizontal ? dim.ancho : dim.alto;
   const m = 12, rot = 76, pad = 5;
@@ -282,24 +322,37 @@ function plantilla(dim: { ancho: number; alto: number }, horizontal: boolean, nC
   const filas = Math.ceil(Math.max(nCapas, 1) / columnas);
   const altoCon = 6 + filas * 4;
 
+  // El marco del mapa, que sirve de referencia para el norte y la escala.
+  const mapaX = m, mapaY = m;
+  const mapaW = rotX - m - 6, mapaH = h - m * 2;
+
+  // Los datos técnicos tienen siete entradas; «Elaboró» aporta un renglón
+  // más por cada nombre a partir del primero.
+  const altoDatos = 52 + Math.max(0, nElaboro - 1) * 3.2;
+
   let y = m + pad + 3;
   const yTitulo = y; y += 22;
-  const yCon = y;    y += altoCon + 6;
-  const yNorte = y;  y += 26;
-  const yDatos = Math.min(y, h - m - pad - 46);
+  const yCon = y;    y += altoCon + 8;
+  const yDatos = y;  y += altoDatos + 4;
+  const yRef = Math.min(y, h - m - pad - 62);
 
   return [
-    { id: 'mapa', tipo: 'mapa', x: m, y: m, ancho: rotX - m - 6, alto: h - m * 2, visible: true },
+    { id: 'mapa', tipo: 'mapa', x: mapaX, y: mapaY, ancho: mapaW, alto: mapaH, visible: true },
     { id: 'rotulo', tipo: 'rotulo', x: rotX, y: m, ancho: rot, alto: h - m * 2, visible: true },
     { id: 'titulo', tipo: 'titulo', x: colX, y: yTitulo, ancho: colW, alto: 22,
       texto: 'Plano temático municipal', tamano: 11, negrita: true, color: '#111111', visible: true },
     { id: 'convenciones', tipo: 'convenciones', x: colX, y: yCon, ancho: colW, alto: altoCon,
       tamano: 6.5, espaciado: 4, columnas, color: '#111111', visible: true },
-    { id: 'norte', tipo: 'norte', x: colX + 7, y: yNorte, ancho: 12, alto: 18, estilo: 0, color: '#111111', visible: true },
-    { id: 'escala', tipo: 'escala', x: colX + 24, y: yNorte + 6, ancho: 46, alto: 8,
+    // El norte y la escala van dentro del mapa, como en un plano de ArcGIS:
+    // el norte arriba a la derecha y la barra de escala abajo a la izquierda.
+    { id: 'norte', tipo: 'norte', x: mapaX + mapaW - 18, y: mapaY + 5, ancho: 12, alto: 18,
+      estilo: 0, color: '#111111', visible: true },
+    { id: 'escala', tipo: 'escala', x: mapaX + 6, y: mapaY + mapaH - 10, ancho: 46, alto: 8,
       tamano: 6, largo: 45, estilo: 0, color: '#111111', visible: true },
-    { id: 'datos', tipo: 'datos', x: colX, y: yDatos, ancho: colW, alto: 46,
+    { id: 'datos', tipo: 'datos', x: colX, y: yDatos, ancho: colW, alto: altoDatos,
       tamano: 6.5, espaciado: 4, color: '#111111', visible: true },
+    { id: 'referencia', tipo: 'referencia', x: colX, y: yRef, ancho: colW, alto: 62,
+      tamano: 5, espaciado: 2.3, color: '#111111', visible: true },
   ];
 }
 
@@ -570,11 +623,34 @@ export default function PlanoLayout() {
     setSelId(id);
   };
 
+  /**
+   * Dónde nace un elemento nuevo. Sobre el mapa se perdería entre las capas,
+   * así que aparece sobre la franja blanca del rótulo, donde se ve y se puede
+   * agarrar; de ahí se arrastra a donde haga falta.
+   */
+  const puntoDeEntrada = (ancho: number, alto: number) => {
+    const rot = elementos.find((e) => e.id === 'rotulo');
+    if (!rot) return { x: hojaAncho / 2 - ancho / 2, y: 20 };
+
+    // Justo debajo del elemento más bajo del rótulo, si queda espacio.
+    const dentro = elementos.filter(
+      (e) => e.id !== 'rotulo' && e.x >= rot.x - 1 && e.x < rot.x + rot.ancho
+    );
+    const fondo = dentro.length
+      ? Math.max(...dentro.map((e) => e.y + e.alto))
+      : rot.y + 6;
+
+    const x = rot.x + 5;
+    const margen = rot.y + rot.alto - 6;
+    const y = fondo + 6 + alto <= margen ? fondo + 6 : Math.max(rot.y + 6, margen - alto);
+    return { x, y };
+  };
+
   const agregarTexto = (txt = 'Texto nuevo') =>
-    agregar({ tipo: 'texto', x: hojaAncho / 2 - 30, y: 20, ancho: 60, alto: 8, texto: txt, tamano: 10, color: '#111111' });
+    agregar({ ...puntoDeEntrada(60, 8), tipo: 'texto', ancho: 60, alto: 8, texto: txt, tamano: 10, color: '#111111' });
 
   const agregarGrafico = (tipo: 'linea' | 'flecha' | 'rect' | 'elipse') =>
-    agregar({ tipo, x: hojaAncho / 2 - 20, y: hojaAlto / 2 - 15, ancho: 40, alto: 30, grosor: 0.4, rellenar: false, color: '#111111' });
+    agregar({ ...puntoDeEntrada(40, 20), tipo, ancho: 40, alto: 20, grosor: 0.4, rellenar: false, color: '#111111' });
 
   const cargarImagen = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -584,7 +660,10 @@ export default function PlanoLayout() {
       const img = new Image();
       img.onload = () => {
         const prop = img.height / img.width;
-        agregar({ tipo: 'imagen', x: 20, y: 20, ancho: 25, alto: 25 * prop, dataUrl: String(lector.result) });
+        agregar({
+          ...puntoDeEntrada(25, 25 * prop),
+          tipo: 'imagen', ancho: 25, alto: 25 * prop, dataUrl: String(lector.result),
+        });
       };
       img.src = String(lector.result);
     };
@@ -595,12 +674,17 @@ export default function PlanoLayout() {
   // El molde se rehace con el número de filas de la leyenda, no con el de
   // capas: un ráster de clases ocupa una fila por clase, y si no se cuentan
   // todas, la flecha de norte y la escala terminan encima de las convenciones.
-  const acomodar = () => { setElementos(plantilla(dim, horizontal, convenciones.length)); setSelId(null); };
+  const lineasElaboro = Math.max(1, elaboro.split('\n').length);
+
+  const acomodar = () => {
+    setElementos(plantilla(dim, horizontal, convenciones.length, lineasElaboro));
+    setSelId(null);
+  };
 
   useEffect(() => {
-    setElementos(plantilla(dim, horizontal, convenciones.length));
+    setElementos(plantilla(dim, horizontal, convenciones.length, lineasElaboro));
     setSelId(null);
-  }, [dim.ancho, dim.alto, horizontal, convenciones.length]);
+  }, [dim.ancho, dim.alto, horizontal, convenciones.length, lineasElaboro]);
 
   const insertarCampo = (token: string) => {
     if (!selId) return;
@@ -611,7 +695,8 @@ export default function PlanoLayout() {
 
   const nombreEl = (el: Elemento) => ({
     mapa: 'Marco del mapa', rotulo: 'Caja del rótulo', titulo: 'Encabezado y título',
-    datos: 'Datos técnicos', norte: 'Flecha de norte', escala: 'Escala gráfica',
+    datos: 'Datos técnicos', referencia: 'Referencia espacial',
+    norte: 'Flecha de norte', escala: 'Escala gráfica',
     convenciones: 'Convenciones', imagen: 'Imagen', linea: 'Línea', flecha: 'Flecha',
     rect: 'Rectángulo', elipse: 'Elipse',
     texto: resolverTexto(el.texto ?? 'Texto', ctx).slice(0, 24) || 'Texto',
@@ -700,6 +785,14 @@ export default function PlanoLayout() {
 
       const conFuente = (el: Elemento) => pdf.setFont('helvetica', el.negrita ? 'bold' : 'normal');
       const conColor = (el: Elemento) => { const [r, g, b] = hexARgb(el.color ?? '#111111'); pdf.setTextColor(r, g, b); };
+
+      /** Placa blanca bajo el norte y la escala, para que se lean sobre el mapa. */
+      const placa = (x: number, y: number, ancho: number, alto: number) => {
+        pdf.setFillColor(255, 255, 255);
+        pdf.setDrawColor(150, 150, 150);
+        pdf.setLineWidth(0.15);
+        pdf.rect(x - 1.2, y - 1.2, ancho + 2.4, alto + 2.4, 'FD');
+      };
 
       for (const el of elementos) {
         if (!el.visible) continue;
@@ -838,12 +931,14 @@ export default function PlanoLayout() {
             break;
           }
           case 'norte':
+            placa(el.x, el.y, el.alto * 0.6, el.alto * 1.15);
             for (const p of figuraNorte(el.estilo ?? 0, el.alto)) primAPdf(pdf, p, el.x, el.y, col);
             break;
 
           case 'escala': {
             const metros = metrosBarra(escala, el.largo);
             const largo = (metros * 1000) / escala;
+            placa(el.x, el.y, largo + 8, 9);
             for (const p of figuraEscala(el.estilo ?? 0, largo, metros, el.tamano ?? 6, fmt)) {
               primAPdf(pdf, p, el.x, el.y, col);
             }
@@ -857,7 +952,35 @@ export default function PlanoLayout() {
               pdf.setFont('helvetica', 'bold'); pdf.setFontSize(Math.max(4, t - 0.5));
               pdf.text(k, el.x, y);
               conFuente(el); pdf.setFontSize(t);
-              for (const l of pdf.splitTextToSize(v, el.ancho) as string[]) { y += t * PT * 1.35; pdf.text(l, el.x, y); }
+              // Los saltos de línea se respetan antes de partir por ancho: así
+              // cada integrante de «Elaboró» conserva su propio renglón.
+              for (const parrafo of v.split('\n')) {
+                for (const l of pdf.splitTextToSize(parrafo, el.ancho) as string[]) {
+                  y += t * PT * 1.35;
+                  pdf.text(l, el.x, y);
+                }
+              }
+              y += esp;
+            }
+            break;
+          }
+          case 'referencia': {
+            const esp = el.espaciado ?? 2.3, t = el.tamano ?? 5;
+            conColor(el);
+            let y = el.y;
+            pdf.setFont('helvetica', 'bold'); pdf.setFontSize(t + 0.8);
+            pdf.text('REFERENCIA ESPACIAL', el.x, y);
+            y += esp + 1.4;
+            for (const [k, v] of REFERENCIA_ESPACIAL) {
+              pdf.setFont('helvetica', 'bold'); pdf.setFontSize(t);
+              const clave = `${k}: `;
+              pdf.text(clave, el.x, y);
+              const sangria = pdf.getTextWidth(clave);
+              conFuente(el); pdf.setFontSize(t);
+              const lineas = pdf.splitTextToSize(v, el.ancho - sangria) as string[];
+              pdf.text(lineas[0] ?? '', el.x + sangria, y);
+              // Un valor que no cabe sigue debajo, alineado con el margen.
+              for (const l of lineas.slice(1)) { y += esp; pdf.text(l, el.x, y); }
               y += esp;
             }
             break;
@@ -907,9 +1030,9 @@ export default function PlanoLayout() {
 
   const sel = elementos.find((e) => e.id === selId) ?? null;
   const esGrafico = !!sel && ['linea', 'flecha', 'rect', 'elipse'].includes(sel.tipo);
-  const conTexto = !!sel && ['titulo', 'texto', 'datos', 'convenciones', 'escala'].includes(sel.tipo);
+  const conTexto = !!sel && ['titulo', 'texto', 'datos', 'referencia', 'convenciones', 'escala'].includes(sel.tipo);
   const fijo = (t: TipoElemento) =>
-    ['mapa', 'rotulo', 'titulo', 'convenciones', 'norte', 'escala', 'datos'].includes(t);
+    ['mapa', 'rotulo', 'titulo', 'convenciones', 'norte', 'escala', 'datos', 'referencia'].includes(t);
   const cerrarMenus = () => setMenu(null);
   const tituloDoc = elementos.find((e) => e.tipo === 'titulo')?.texto ?? 'Plano sin título';
 
@@ -1322,7 +1445,36 @@ export default function PlanoLayout() {
                     {datosTecnicos().map(([k, v]) => (
                       <div key={k} style={{ marginBottom: (el.espaciado ?? 4) * vista * 0.35 }}>
                         <div style={{ fontSize: Math.max(5, (t - 0.5) * PT * vista), fontWeight: 700 }}>{k}</div>
-                        <div style={{ fontSize: Math.max(5, t * PT * vista), lineHeight: 1.32 }}>{v}</div>
+                        {/* «Elaboró» puede traer varios nombres, uno por línea */}
+                        {v.split('\n').map((linea, i) => (
+                          <div key={i} style={{ fontSize: Math.max(5, t * PT * vista), lineHeight: 1.32 }}>
+                            {linea}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+
+              if (el.tipo === 'referencia') {
+                const t = el.tamano ?? 5;
+                return (
+                  <div {...comun}>
+                    <div style={{
+                      fontSize: Math.max(5, (t + 0.8) * PT * vista), fontWeight: 700,
+                      letterSpacing: '0.04em', marginBottom: 1.6 * vista,
+                    }}>
+                      REFERENCIA ESPACIAL
+                    </div>
+                    {REFERENCIA_ESPACIAL.map(([k, v]) => (
+                      <div key={k} style={{
+                        display: 'flex', gap: 1.2 * vista,
+                        fontSize: Math.max(4.5, t * PT * vista),
+                        lineHeight: (el.espaciado ?? 2.3) * vista / Math.max(4.5, t * PT * vista),
+                      }}>
+                        <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{k}:</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</span>
                       </div>
                     ))}
                   </div>
@@ -1343,8 +1495,21 @@ export default function PlanoLayout() {
               const altoSvg = el.tipo === 'norte' ? el.alto * 1.15
                 : el.tipo === 'escala' ? 9 : el.alto + 2;
 
+              // El norte y la escala ahora viven sobre el mapa, y ahí un trazo
+              // negro sobre una capa oscura no se lee. Una placa blanca los
+              // despega del fondo; sobre el rótulo, que ya es blanco, no se nota.
+              const conPlaca = el.tipo === 'norte' || el.tipo === 'escala';
+
               return (
-                <div {...comun} style={{ ...base, width: anchoSvg * vista, height: altoSvg * vista }}>
+                <div {...comun} style={{
+                  ...base, width: anchoSvg * vista, height: altoSvg * vista,
+                  ...(conPlaca ? {
+                    background: '#ffffff',
+                    border: '0.5px solid rgba(0,0,0,0.25)',
+                    padding: 1 * vista,
+                    boxSizing: 'content-box' as const,
+                  } : {}),
+                }}>
                   <svg width={anchoSvg * vista} height={altoSvg * vista} style={{ overflow: 'visible' }}>
                     <g transform={el.tipo === 'norte' ? `translate(${(anchoSvg / 2) * vista},0)` : undefined}>
                       {prims.map((p, j) => primASvg(p, j, vista, col))}
@@ -1401,7 +1566,7 @@ export default function PlanoLayout() {
                   </>
                 )}
 
-                {(sel.tipo === 'convenciones' || sel.tipo === 'datos') && (
+                {(sel.tipo === 'convenciones' || sel.tipo === 'datos' || sel.tipo === 'referencia') && (
                   <Deslizador etiqueta="Separación de renglones" valor={sel.espaciado ?? 4} unidad="mm"
                     min={2.5} max={8} paso={0.1} onChange={(v) => actualizar(sel.id, { espaciado: v })} />
                 )}
@@ -1460,7 +1625,11 @@ export default function PlanoLayout() {
                 <input className="pl-campo" value={entidad} onChange={(e) => setEntidad(e.target.value)} />
               </Propiedad>
               <Propiedad etiqueta="Elaboró">
-                <input className="pl-campo" value={elaboro} placeholder="Tu nombre"
+                {/* Varias líneas: los trabajos suelen ser de un grupo, y cada
+                    integrante debe quedar en su propio renglón del rótulo. */}
+                <textarea className="pl-campo" value={elaboro} rows={3}
+                  placeholder={'Un nombre por línea\n1. Juan Diego\n2. Mateo'}
+                  style={{ resize: 'vertical', minHeight: 54, lineHeight: 1.5 }}
                   onChange={(e) => setElaboro(e.target.value)} />
               </Propiedad>
               <Propiedad etiqueta="Fuente de los datos">
@@ -1644,6 +1813,7 @@ function iconoDe(t: TipoElemento): string {
   return ({
     mapa: 'mapa', rotulo: 'marco', titulo: 'titulo', datos: 'lista',
     norte: 'norte', escala: 'escala', convenciones: 'convenciones', texto: 'texto',
+    referencia: 'datos',
     imagen: 'imagen', linea: 'linea', flecha: 'flechaDiag', rect: 'rectangulo', elipse: 'elipse',
   } as Record<string, string>)[t] ?? 'texto';
 }

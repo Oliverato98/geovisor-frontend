@@ -84,7 +84,7 @@ export default function LeftPanel() {
 
 // ── Tab: Capas ────────────────────────────────────────────────────────────────
 function LayersTab() {
-  const { layers, toggleLayerVisibility, setLayerOpacity, removeLayer, addNotification, user } = useGeoStore();
+  const { layers, toggleLayerVisibility, setLayerOpacity, removeLayer, addNotification, user, toggleAllLayers } = useGeoStore();
   const [expanded, setExpanded] = useState<number | null>(null);
 
   const handleDelete = async (id: number, name: string) => {
@@ -114,6 +114,8 @@ function LayersTab() {
     }
   };
 
+  const vectorialesVisibles = layers.filter((l) => l.visible).length;
+
   const geomIcon = (type: string) => {
     const t = type?.toLowerCase() ?? '';
     if (t.includes('point')) return <MapPin size={11} />;
@@ -126,8 +128,33 @@ function LayersTab() {
       <RasterSection />
 
       {layers.length > 0 && (
-        <div className="geo-section-title" style={{ marginTop: 4 }}>
-          Capas vectoriales
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '2px 0 8px', marginTop: 4,
+        }}>
+          <Layers size={12} color="var(--geo-text-muted)" />
+          <span style={{
+            flex: 1, fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
+            textTransform: 'uppercase', color: 'var(--geo-text-muted)',
+          }}>
+            Capas vectoriales
+          </span>
+          <span style={{
+            fontSize: 10, fontFamily: 'DM Mono, monospace',
+            color: vectorialesVisibles ? 'var(--geo-accent)' : 'var(--geo-text-hint)',
+          }}>
+            {vectorialesVisibles}/{layers.length}
+          </span>
+          <button
+            title={vectorialesVisibles ? 'Apagar todas' : 'Prender todas'}
+            onClick={toggleAllLayers}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--geo-text-hint)', padding: 2, display: 'flex',
+            }}
+          >
+            {vectorialesVisibles ? <EyeOff size={12} /> : <Eye size={12} />}
+          </button>
         </div>
       )}
 
@@ -280,16 +307,16 @@ function RasterSection() {
         }}>
           {encendidas}/{rasterLayers.length}
         </span>
-        {encendidas > 0 && (
+        {rasterLayers.length > 0 && (
           <button
-            title="Apagar todos los ráster"
+            title={encendidas ? 'Apagar todos los ráster' : 'Prender todos los ráster'}
             onClick={(e) => { e.stopPropagation(); hideAllRasters(); }}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
               color: 'var(--geo-text-hint)', padding: 2, display: 'flex',
             }}
           >
-            <EyeOff size={12} />
+            {encendidas ? <EyeOff size={12} /> : <Eye size={12} />}
           </button>
         )}
       </div>

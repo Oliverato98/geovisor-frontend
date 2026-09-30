@@ -68,6 +68,8 @@ interface GeoStore {
   toggleLayerVisibility: (id: number) => void;
   setLayerOpacity: (id: number, opacity: number) => void;
   updateLayerStyle: (id: number, style: Record<string, unknown>) => void;
+  /** Apaga todas las capas, o las prende todas si ya estaban apagadas. */
+  toggleAllLayers: () => void;
 
   // Capas ráster
   rasterLayers: RasterLayer[];
@@ -182,6 +184,11 @@ export const useGeoStore = create<GeoStore>((set, get) => ({
     set((s) => ({
       layers: s.layers.map((l) => (l.id === id ? { ...l, style } : l)),
     })),
+  toggleAllLayers: () =>
+    set((s) => {
+      const apagarlas = s.layers.some((l) => l.visible);
+      return { layers: s.layers.map((l) => ({ ...l, visible: !apagarlas })) };
+    }),
 
   // Capas ráster. Nacen apagadas: son trece y encendidas de entrada taparían
   // el mapa entero. Al 80 % de opacidad se sigue leyendo el fondo debajo.
@@ -231,9 +238,10 @@ export const useGeoStore = create<GeoStore>((set, get) => ({
       ),
     })),
   hideAllRasters: () =>
-    set((s) => ({
-      rasterLayers: s.rasterLayers.map((r) => ({ ...r, visible: false })),
-    })),
+    set((s) => {
+      const apagarlos = s.rasterLayers.some((r) => r.visible);
+      return { rasterLayers: s.rasterLayers.map((r) => ({ ...r, visible: !apagarlos })) };
+    }),
 
   // Herramientas
   activeTool: 'none',
