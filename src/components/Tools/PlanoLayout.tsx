@@ -80,7 +80,29 @@ interface Elemento {
   grosor?: number;       // mm
   rellenar?: boolean;
   dataUrl?: string;      // imágenes
+  /** Contenido reescrito a mano de un bloque de texto del rótulo.
+   *  Si está vacío se usa el contenido que el plano genera solo. */
+  lineas?: string;
+  /** Textos propios para las filas de las convenciones, por clave de fila. */
+  etiquetas?: Record<string, string>;
 }
+
+/**
+ * Convierte el texto libre de un bloque en filas de clave y valor. Una línea
+ * con dos puntos se parte ahí; una sin ellos va como valor suelto, y una vacía
+ * deja un espacio en blanco.
+ */
+function filasDeTexto(txt: string): Array<[string, string]> {
+  return txt.split('\n').map((linea) => {
+    const corte = linea.indexOf(':');
+    if (corte < 0) return ['', linea.trim()] as [string, string];
+    return [linea.slice(0, corte).trim(), linea.slice(corte + 1).trim()] as [string, string];
+  });
+}
+
+/** Lo contrario: pasa las filas a texto para poder editarlas. */
+const textoDeFilas = (filas: Array<[string, string]>) =>
+  filas.map(([k, v]) => (k ? `${k}: ${v}` : v)).join('\n');
 
 interface Tick { frac: number; valor: number }
 interface Esquinas { si: string; sd: string; ii: string; id: string; centro: string }
@@ -457,6 +479,15 @@ export default function PlanoLayout() {
     }),
   ], [visibles, visiblesRaster]);
 
+  const elConvenciones = elementos.find((e) => e.tipo === 'convenciones');
+  /** Las convenciones con los nombres que el usuario haya reescrito. */
+  const convencionesFinal = useMemo(
+    () => convenciones.map((c) => ({
+      ...c, texto: elConvenciones?.etiquetas?.[c.clave] ?? c.texto,
+    })),
+    [convenciones, elConvenciones?.etiquetas]
+  );
+
   const elMapa = elementos.find((e) => e.id === 'mapa')!;
   const elNorte = elementos.find((e) => e.tipo === 'norte');
   const elEscala = elementos.find((e) => e.tipo === 'escala');
@@ -468,6 +499,13 @@ export default function PlanoLayout() {
     grilla: grilla ? `cada ${fmt(espActual)} m` : 'sin grilla',
     esquinas,
   };
+
+  /** Las filas que muestra un bloque: las propias si se reescribió, o las que
+   *  el plano genera solo. */
+  const filasDe = (el: Elemento): Array<[string, string]> =>
+    el.lineas != null
+      ? filasDeTexto(el.lineas)
+      : el.tipo === 'referencia' ? REFERENCIA_ESPACIAL : datosTecnicos();
 
   const datosTecnicos = (): Array<[string, string]> => ([
     ['Escala', `1:${escala.toLocaleString('es-CO')}`],
@@ -875,11 +913,11 @@ export default function PlanoLayout() {
           case 'convenciones': {
             const cols = el.columnas ?? 1, esp = el.espaciado ?? 4;
             const anchoCol = el.ancho / cols;
-            const filas = Math.ceil(Math.max(convenciones.length, 1) / cols);
+            const filas = Math.ceil(Math.max(convencionesFinal.length, 1) / cols);
             conColor(el); pdf.setFont('helvetica', 'bold'); pdf.setFontSize((el.tamano ?? 6.5) + 1);
             pdf.text('Convenciones', el.x, el.y);
             pdf.setFontSize(el.tamano ?? 6.5);
-            convenciones.forEach((conv, i) => {
+            convencionesFinal.forEach((conv, i) => {
               const c = Math.floor(i / filas), fila = i % filas;
               const cx = el.x + c * anchoCol, cy = el.y + 4.5 + fila * esp;
               pdf.setDrawColor(60, 60, 60); pdf.setLineWidth(0.2);
@@ -938,7 +976,7 @@ export default function PlanoLayout() {
             const esp = el.espaciado ?? 4, t = el.tamano ?? 6.5;
             conColor(el);
             let y = el.y;
-            for (const [k, v] of datosTecnicos()) {
+            for (const [k, v] of filasDe(el)) {
               pdf.setFont('helvetica', 'bold'); pdf.setFontSize(Math.max(4, t - 0.5));
               pdf.text(k, el.x, y);
               conFuente(el); pdf.setFontSize(t);
@@ -959,9 +997,9 @@ export default function PlanoLayout() {
             conColor(el);
             let y = el.y;
             pdf.setFont('helvetica', 'bold'); pdf.setFontSize(t + 0.8);
-            pdf.text('REFERENCIA ESPACIAL', el.x, y);
+            pdf.text(el.texto ?? 'REFERENCIA ESPACIAL', el.x, y);
             y += esp + 1.4;
-            for (const [k, v] of REFERENCIA_ESPACIAL) {
+            for (const [k, v] of filasDe(el)) {
               pdf.setFont('helvetica', 'bold'); pdf.setFontSize(t);
               const clave = `${k}: `;
               pdf.text(clave, el.x, y);
@@ -1388,13 +1426,13 @@ export default function PlanoLayout() {
 
               if (el.tipo === 'convenciones') {
                 const cols = el.columnas ?? 1, esp = el.espaciado ?? 4;
-                const filas = Math.ceil(Math.max(convenciones.length, 1) / cols);
+                const filas = Math.ceil(Math.max(convencionesFinal.length, 1) / cols);
                 const anchoCol = (el.ancho / cols) * vista;
                 return (
                   <div {...comun}>
                     <div style={{ fontSize: ((el.tamano ?? 6.5) + 1) * PT * vista, fontWeight: 700 }}>Convenciones</div>
                     <div style={{ position: 'relative', height: (4.5 + filas * esp) * vista }}>
-                      {convenciones.map((c, i) => {
+                      {convencionesFinal.map((c, i) => {
                         const cc = Math.floor(i / filas), fila = i % filas;
                         const relleno = c.forma === 'rampa'
                           ? `linear-gradient(to right, ${c.colores.join(', ')})`
@@ -1432,8 +1470,8 @@ export default function PlanoLayout() {
                 const t = el.tamano ?? 6.5;
                 return (
                   <div {...comun}>
-                    {datosTecnicos().map(([k, v]) => (
-                      <div key={k} style={{ marginBottom: (el.espaciado ?? 4) * vista * 0.35 }}>
+                    {filasDe(el).map(([k, v], i) => (
+                      <div key={`${k}-${i}`} style={{ marginBottom: (el.espaciado ?? 4) * vista * 0.35 }}>
                         <div style={{ fontSize: Math.max(5, (t - 0.5) * PT * vista), fontWeight: 700 }}>{k}</div>
                         {/* «Elaboró» puede traer varios nombres, uno por línea */}
                         {v.split('\n').map((linea, i) => (
@@ -1455,10 +1493,10 @@ export default function PlanoLayout() {
                       fontSize: Math.max(5, (t + 0.8) * PT * vista), fontWeight: 700,
                       letterSpacing: '0.04em', marginBottom: 1.6 * vista,
                     }}>
-                      REFERENCIA ESPACIAL
+                      {el.texto ?? 'REFERENCIA ESPACIAL'}
                     </div>
-                    {REFERENCIA_ESPACIAL.map(([k, v]) => (
-                      <div key={k} style={{
+                    {filasDe(el).map(([k, v], i) => (
+                      <div key={`${k}-${i}`} style={{
                         display: 'flex', gap: 1.2 * vista,
                         fontSize: Math.max(4.5, t * PT * vista),
                         lineHeight: (el.espaciado ?? 2.3) * vista / Math.max(4.5, t * PT * vista),
@@ -1520,6 +1558,70 @@ export default function PlanoLayout() {
                   <Propiedad etiqueta="Texto">
                     <textarea className="pl-campo pl-area" rows={3} value={sel.texto ?? ''}
                       onChange={(e) => actualizar(sel.id, { texto: e.target.value })} />
+                  </Propiedad>
+                )}
+
+                {sel.tipo === 'referencia' && (
+                  <Propiedad etiqueta="Encabezado">
+                    <input className="pl-campo" value={sel.texto ?? 'REFERENCIA ESPACIAL'}
+                      onChange={(e) => actualizar(sel.id, { texto: e.target.value })} />
+                  </Propiedad>
+                )}
+
+                {/* Los dos bloques de texto del rótulo se reescriben a mano:
+                    una línea por fila, con «Clave: valor». Se pueden quitar
+                    filas, agregarlas o cambiarles el texto. */}
+                {(sel.tipo === 'datos' || sel.tipo === 'referencia') && (
+                  <Propiedad etiqueta="Contenido">
+                    <textarea
+                      className="pl-campo pl-area"
+                      rows={sel.tipo === 'referencia' ? 12 : 8}
+                      value={sel.lineas ?? textoDeFilas(filasDe(sel))}
+                      onChange={(e) => actualizar(sel.id, { lineas: e.target.value })}
+                      style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, lineHeight: 1.55 }}
+                    />
+                    <div className="pl-nota">
+                      Una línea por fila, con dos puntos entre el título y su valor.
+                      Una línea vacía deja un espacio.
+                    </div>
+                    {sel.lineas != null && (
+                      <button type="button" className="pl-boton-sec"
+                        onClick={() => actualizar(sel.id, { lineas: undefined })}>
+                        Volver al contenido automático
+                      </button>
+                    )}
+                  </Propiedad>
+                )}
+
+                {/* Las filas de la leyenda salen de las capas encendidas, pero
+                    el texto de cada una se puede reescribir sin salir de aquí. */}
+                {sel.tipo === 'convenciones' && convencionesFinal.length > 0 && (
+                  <Propiedad etiqueta="Nombres de las filas">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {convencionesFinal.map((c) => (
+                        <div key={c.clave} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          <span style={{
+                            width: 14, height: 10, borderRadius: 2, flexShrink: 0,
+                            border: '1px solid rgba(0,0,0,.35)',
+                            background: c.encabezado ? 'transparent'
+                              : c.forma === 'rampa'
+                                ? `linear-gradient(to right, ${c.colores.join(', ')})`
+                                : c.colores[0],
+                          }} />
+                          <input className="pl-campo" value={c.texto}
+                            style={{ flex: 1, minWidth: 0, fontWeight: c.encabezado ? 600 : 400 }}
+                            onChange={(e) => actualizar(sel.id, {
+                              etiquetas: { ...sel.etiquetas, [c.clave]: e.target.value },
+                            })} />
+                        </div>
+                      ))}
+                    </div>
+                    {sel.etiquetas && Object.keys(sel.etiquetas).length > 0 && (
+                      <button type="button" className="pl-boton-sec"
+                        onClick={() => actualizar(sel.id, { etiquetas: undefined })}>
+                        Volver a los nombres de las capas
+                      </button>
+                    )}
                   </Propiedad>
                 )}
 
@@ -2171,6 +2273,18 @@ const CSS_PLANO = `
 .pl-campo:hover { border-color: #2C3444; }
 .pl-campo:focus { border-color: var(--pl-acento); outline: none; }
 .pl-area { resize: vertical; min-height: 56px; line-height: 1.5; }
+.pl-nota {
+  font-size: 10.5px; line-height: 1.45; color: var(--pl-tinta-2);
+  margin-top: 6px;
+}
+.pl-boton-sec {
+  margin-top: 8px; width: 100%; padding: 6px 8px;
+  font: inherit; font-size: 11px; cursor: pointer;
+  background: transparent; color: var(--pl-tinta-2);
+  border: 1px solid var(--pl-linea); border-radius: 6px;
+  transition: border-color .15s, color .15s;
+}
+.pl-boton-sec:hover { border-color: var(--pl-acento); color: var(--pl-acento); }
 
 .pl-color { display: flex; align-items: center; gap: 9px; }
 .pl-color input {

@@ -379,6 +379,12 @@ function RasterSection() {
                     </p>
 
                     <LeyendaRaster raster={r} />
+                    {r.tipo === 'clases' && (
+                      <p style={{ fontSize: 10, color: '#8f95a9', margin: '7px 0 0', lineHeight: 1.45 }}>
+                        Escribe el nombre de cada clase y toca su cuadro para
+                        cambiarle el color.
+                      </p>
+                    )}
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', margin: '10px 0 5px' }}>
                       <span style={{ fontSize: 10, color: 'var(--geo-text-hint)' }}>Opacidad</span>
@@ -481,21 +487,24 @@ function LeyendaRaster({ raster }: { raster: RasterLayer }) {
                 }}
               />
             </span>
+            {/* Sin borde ni fondo el campo parecía una etiqueta y nadie
+                adivinaba que se podía escribir encima. */}
             <input
               className="geo-input"
-              title="Nombre de esta clase en la leyenda"
+              title="Escribe aquí el nombre de esta clase"
               value={textoClase(raster, c.indice)}
               onChange={(e) => setRasterEtiquetaClase(raster.id, c.indice, e.target.value)}
               style={{
-                flex: 1, minWidth: 0, fontSize: 11, padding: '3px 6px',
-                background: 'transparent', border: '1px solid transparent',
-                color: '#c2c7d4',
+                flex: 1, minWidth: 0, fontSize: 11, padding: '4px 7px',
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid var(--geo-border-hi)',
+                borderRadius: 5, color: '#e8eaf0',
                 // Es un rótulo de leyenda, no un dato: va en la tipografía
                 // del panel, no en la monoespaciada de los campos.
                 fontFamily: 'inherit',
               }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--geo-border-hi)'; }}
-              onBlur={(e) => { e.currentTarget.style.borderColor = 'transparent'; }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--geo-accent)'; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--geo-border-hi)'; }}
             />
           </div>
         ))}
