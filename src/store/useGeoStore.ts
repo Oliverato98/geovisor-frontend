@@ -23,6 +23,8 @@ export interface GeoLayer {
   attributes: Record<string, string>;
   style: Record<string, unknown>;
   is_public: boolean;
+  /** Capa oficial del municipio: se ve y se simboliza, pero no se elimina. */
+  protegida?: boolean;
   tile_url?: string;
   // Estado UI local
   visible: boolean;

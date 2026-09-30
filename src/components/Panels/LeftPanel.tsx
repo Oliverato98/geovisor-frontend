@@ -7,7 +7,7 @@ import { useDropzone } from 'react-dropzone';
 import {
   Layers, Upload, Activity, Eye, EyeOff, Trash2,
   ZoomIn, Download, ChevronDown, ChevronRight,
-  MapPin, Minus, Square, AlertTriangle, Palette,
+  MapPin, Minus, Square, AlertTriangle, Palette, Lock
 } from 'lucide-react';
 import { useGeoStore } from '../../store/useGeoStore';
 import { layersApi, uploadApi, analysisApi } from '../../services/api';
@@ -43,9 +43,7 @@ export default function LeftPanel() {
             <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '-0.01em' }}>Geovisor Calarcá</div>
             <div style={{ fontSize: 10, color: 'var(--geo-text-muted)' }}>Quindío, Colombia</div>
           </div>
-          {user && (
-            <span className="geo-badge admin" style={{ marginLeft: 'auto' }}>{user.role}</span>
-          )}
+
         </div>
 
         {/* Tabs */}
@@ -93,8 +91,12 @@ function LayersTab() {
       await layersApi.delete(id);
       removeLayer(id);
       addNotification({ type: 'success', message: `Capa "${name}" eliminada` });
-    } catch {
-      addNotification({ type: 'error', message: 'Error al eliminar la capa' });
+    } catch (e: any) {
+      // El backend responde 403 y explica por qué cuando la capa es oficial
+      addNotification({
+        type: 'error',
+        message: e?.response?.data?.detail ?? 'No se pudo eliminar la capa',
+      });
     }
   };
 
@@ -207,7 +209,12 @@ function LayersTab() {
                     onClick={() => handleExport(layer.id, layer.name)}>
                     <Download size={11} /> Export
                   </button>
-                  {user?.role === 'admin' && (
+                  {layer.protegida ? (
+                    <span className="geo-btn" title="Capa oficial del municipio: no se puede eliminar"
+                      style={{ flex: 1, justifyContent: 'center', opacity: .45, cursor: 'default' }}>
+                      <Lock size={11} />
+                    </span>
+                  ) : (
                     <button className="geo-btn danger" style={{ flex: 1, justifyContent: 'center' }}
                       onClick={() => handleDelete(layer.id, layer.name)}>
                       <Trash2 size={11} />
@@ -308,17 +315,8 @@ function UploadTab() {
       'application/vnd.google-earth.kmz': ['.kmz'],
     },
     multiple: false,
-    disabled: uploading || !user || user.role !== 'admin',
+    disabled: uploading,
   });
-
-  if (!user || user.role !== 'admin') {
-    return (
-      <div style={{ padding: 20, textAlign: 'center', color: 'var(--geo-text-hint)' }}>
-        <AlertTriangle size={28} style={{ opacity: 0.3, marginBottom: 8 }} />
-        <div style={{ fontSize: 12 }}>Solo los administradores pueden subir capas</div>
-      </div>
-    );
-  }
 
   return (
     <div style={{ padding: 14, overflowY: 'auto', height: '100%' }}>
@@ -470,15 +468,6 @@ function AnalysisTab() {
     a.download = `analisis_${tool}.geojson`;
     a.click();
   };
-
-  if (!user || user.role !== 'admin') {
-    return (
-      <div style={{ padding: 20, textAlign: 'center', color: 'var(--geo-text-hint)' }}>
-        <Activity size={28} style={{ opacity: 0.3, marginBottom: 8 }} />
-        <div style={{ fontSize: 12 }}>Solo los administradores pueden ejecutar análisis espacial</div>
-      </div>
-    );
-  }
 
   const layerOptions = layers.map((l) => <option key={l.id} value={l.id}>{l.name}</option>);
   const selectedLayer = layers.find((l) => l.id === parseInt(layerA));

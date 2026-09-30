@@ -160,10 +160,9 @@ export default function Toolbar() {
           </button>
         </div>
       ) : (
-        <button className="geo-btn primary" style={{ padding: '5px 14px', fontSize: 11 }}
-          onClick={() => setShowLogin(true)}>
-          <LogIn size={12} /> Iniciar sesión
-        </button>
+        <span style={{ fontSize: 10.5, color: 'var(--geo-text-hint)' }}>
+          Geovisor de acceso libre
+        </span>
       )}
 
       {/* Modal Login */}
