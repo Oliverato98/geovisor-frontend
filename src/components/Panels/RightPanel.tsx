@@ -6,7 +6,14 @@ import { useState } from 'react';
 import { X, Eye, MapPin, Navigation } from 'lucide-react';
 import { useGeoStore } from '../../store/useGeoStore';
 
-const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY ?? '';
+const CLAVE_CRUDA = (import.meta.env.VITE_GOOGLE_MAPS_KEY ?? '').trim();
+// Los valores de relleno ('no-key-yet' y parecidos) no son claves: con ellos el
+// iframe de Google carga vacío. Se descartan para caer en la vista alterna,
+// que sí abre Street View en una pestaña nueva.
+const GOOGLE_MAPS_KEY =
+  CLAVE_CRUDA && !/^(no-?key|none|null|tu[-_]?clave|placeholder|xxx)/i.test(CLAVE_CRUDA)
+    ? CLAVE_CRUDA
+    : '';
 
 export default function RightPanel() {
   const { rightPanelOpen, setRightPanelOpen, streetViewCoords, selectedFeature } = useGeoStore();
@@ -138,8 +145,9 @@ function StreetViewPanel() {
                   </a>
                 </div>
               </div>
-              <div style={{ fontSize: 10, color: 'var(--geo-text-hint)', textAlign: 'center' }}>
-                Agrega VITE_GOOGLE_MAPS_KEY en .env<br />para ver Street View embebido
+              <div style={{ fontSize: 10, color: 'var(--geo-text-hint)', textAlign: 'center', lineHeight: 1.5 }}>
+                La vista se abre en una pestaña nueva.<br />
+                Para verla aquí dentro hace falta una clave de Google Maps.
               </div>
             </div>
           )

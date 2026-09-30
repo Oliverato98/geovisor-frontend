@@ -19,9 +19,6 @@ export default function MapView() {
   const measurePointsRef = useRef<[number, number][]>([]);
   const drawingRef = useRef<[number, number][]>([]);
   const popupRef = useRef<maplibregl.Popup | null>(null);
-  // Los clics de capa se registran una sola vez por capa, así que la herramienta
-  // activa se consulta por referencia y no por clausura.
-  const activeToolRef = useRef(activeTool);
 
   const {
     setMap, baseMap, layers, activeTool,
@@ -29,6 +26,10 @@ export default function MapView() {
     setStreetViewCoords, addNotification, user,
     analysisLayers,
   } = useGeoStore();
+
+  // Los clics de capa se registran una sola vez por capa, así que la herramienta
+  // activa se consulta por referencia y no por clausura.
+  const activeToolRef = useRef(activeTool);
 
   // ── Inicializar mapa ──────────────────────────────────────────────────────
   useEffect(() => {
